@@ -1,0 +1,8 @@
+node_modules
+.next
+out
+db
+docker-compose.yml
+*.png
+AGENTS.md
+CLAUDE.md
