@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -85,3 +86,26 @@ async def test_validation_errors_are_human_readable(client, cleanup):
         r = await player.post("/api/auth/me/password", json={"current_password": "x", "new_password": "12"})
         assert r.status_code == 422
         assert "Новый пароль" in r.json()["detail"]
+
+
+async def test_parallel_bookings_do_not_overlap(client, cleanup, games_cleanup):
+    """Два одновременных запроса на пересекающиеся игры: пройти должен один.
+    Держится на advisory-локе; в проде поверх ещё EXCLUDE-констрейнт."""
+    await login(client, "admin@lis.bar")
+    g1 = await _admin_game(client, "t-гонка-1", next_friday_at(15), duration=4)
+    g2 = await _admin_game(client, "t-гонка-2", next_friday_at(17), duration=4)
+    games_cleanup.extend([g1["id"], g2["id"]])
+
+    player = AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
+    async with player:
+        me = await register(player, cleanup)
+    handle = me["telegram"]
+
+    async def book(game_id: str) -> int:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            await c.post("/api/auth/login", json={"login": handle, "password": "secret9"})
+            r = await c.post(f"/api/games/{game_id}/book")
+            return r.status_code
+
+    codes = await asyncio.gather(book(g1["id"]), book(g2["id"]))
+    assert sorted(codes) == [200, 409], codes

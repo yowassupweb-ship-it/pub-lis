@@ -4,7 +4,8 @@ from collections.abc import Sequence
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy import delete, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db import get_db
@@ -62,6 +63,15 @@ async def _get_game(db: AsyncSession, game_id: uuid.UUID) -> Game:
 
 def _can_manage(user: AppUser, game: Game) -> bool:
     return user.role in {"manager", "admin"} or game.master_id == user.id
+
+
+async def _lock_user_bookings(db: AsyncSession, user_id: uuid.UUID) -> None:
+    """Сериализуем брони одного игрока: два параллельных запроса на
+    пересекающиеся игры не пройдут проверку одновременно. Лок держится до
+    конца транзакции; в проде это подстраховано EXCLUDE-констрейнтом."""
+    await db.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"), {"key": f"booking:{user_id}"}
+    )
 
 
 async def _overlapping_game(db: AsyncSession, user_id: uuid.UUID, game: Game) -> Game | None:
@@ -288,6 +298,7 @@ async def request_seat(
         raise HTTPException(status_code=409, detail="Игра недоступна для записи")
     if game.starts_at < datetime.now(timezone.utc):
         raise HTTPException(status_code=409, detail="Игра уже началась")
+    await _lock_user_bookings(db, user.id)
     existing = (
         await db.execute(
             select(GameBooking.id).where(
@@ -314,7 +325,11 @@ async def request_seat(
         raise HTTPException(status_code=409, detail="Мест не осталось")
     db.add(GameBooking(game_id=game.id, user_id=user.id, status="pending"))
     await log_event(db, user.id, "booking.request", "game", game.id)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:  # сработал EXCLUDE: успели записаться на пересекающуюся игру
+        await db.rollback()
+        raise HTTPException(status_code=409, detail="В это время вы уже записаны на другую игру")
     return await _game_out(db, game, user)
 
 
@@ -375,6 +390,7 @@ async def _set_booking_status(
     if booking is None or booking.game_id != game.id:
         raise HTTPException(status_code=404, detail="Заявка не найдена")
     if status == "approved" and booking.status != "approved":
+        await _lock_user_bookings(db, booking.user_id)
         # пока заявка лежала, игрок мог записаться на другую игру в это время
         clash = await _overlapping_game(db, booking.user_id, game)
         if clash is not None:

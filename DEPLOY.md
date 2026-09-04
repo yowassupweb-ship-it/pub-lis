@@ -33,6 +33,17 @@ docker compose -f docker-compose.prod.yml up -d --build
 docker compose -f docker-compose.prod.yml exec api alembic upgrade head
 ```
 
+## Обслуживание
+
+Аудит, истёкшие сессии и счётчики попыток входа растут — чистим по расписанию.
+Раз в сутки на сервере (crontab -e):
+
+```
+0 5 * * * cd /path/to/repo && docker compose -f docker-compose.prod.yml exec -T api python cleanup.py >> /var/log/lis-cleanup.log 2>&1
+```
+
+Глубина хранения аудита — `AUDIT_KEEP_DAYS` в `.env` (по умолчанию 90 дней).
+
 ## Полезное
 
 - Роль пользователю: `docker compose -f docker-compose.prod.yml exec api python set_role.py <email> admin`

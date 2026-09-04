@@ -2,14 +2,10 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Text, text
-from sqlalchemy.dialects.postgresql import ENUM, JSONB, UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-app_role = ENUM(
-    "user", "gamemaster", "bartender", "manager", "admin", name="app_role", create_type=False
-)
-
-
+# роль и статусы — text + CHECK на стороне БД, единый подход по всей схеме
 class Base(DeclarativeBase):
     pass
 
@@ -22,7 +18,7 @@ class AppUser(Base):
     )
     name: Mapped[str] = mapped_column(Text)
     email: Mapped[str | None] = mapped_column(Text, unique=True)
-    role: Mapped[str] = mapped_column(app_role, server_default="user")
+    role: Mapped[str] = mapped_column(Text, server_default="user")
     is_active: Mapped[bool] = mapped_column(Boolean, server_default=text("true"))
     password_hash: Mapped[str | None] = mapped_column(Text)
     phone: Mapped[str | None] = mapped_column(Text)
@@ -77,6 +73,7 @@ class GameBooking(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("app_users.id", ondelete="CASCADE"))
     status: Mapped[str] = mapped_column(Text, server_default="pending")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
+    # slot ведут триггеры БД (см. миграцию 0017), в коде не трогаем
 
 
 class Quest(Base):
