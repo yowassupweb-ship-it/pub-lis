@@ -1,0 +1,1391 @@
+openapi: 3.1.0
+info:
+  title: Хитрый лис CRM API
+  description: |
+    Контракт между фронтом (Next.js) и бэком (FastAPI).
+    Источник правды — этот файл: бэк реализует его, Prism мокает его.
+    Аутентификация — серверная сессия в httpOnly-куке `sid`.
+
+    Статус операции — поле x-status:
+      live — реализовано на бэке, прокси фронта шлёт запрос туда;
+      mock — заглушка, запрос уходит в мок Prism (порт 4010).
+    Путь проксируется в мок, только если ВСЕ его операции mock.
+    Новый эндпоинт добавляй сразу с x-status: mock и example-ответами;
+    бэкендер реализует его и меняет статус на live.
+  version: 0.1.0
+
+servers:
+  - url: http://localhost:8000
+    description: Локальный FastAPI (uvicorn)
+  - url: http://localhost:4010
+    description: Мок-сервер Prism
+
+tags:
+  - name: system
+  - name: auth
+  - name: users
+  - name: games
+  - name: quests
+
+paths:
+  /api/health:
+    get:
+      tags: [system]
+      operationId: getHealth
+      x-status: live
+      summary: Проверка живости API
+      responses:
+        "200":
+          description: API работает
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    const: ok
+              example:
+                status: ok
+
+  /api/auth/login:
+    post:
+      tags: [auth]
+      operationId: login
+      x-status: live
+      summary: Вход по email и паролю
+      description: |
+        При успехе создаёт серверную сессию и ставит httpOnly-куку `sid`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Успешный вход, кука установлена
+          headers:
+            Set-Cookie:
+              description: "sid=<token>; HttpOnly; SameSite=Lax; Path=/"
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/auth/register:
+    post:
+      tags: [auth]
+      operationId: register
+      x-status: live
+      summary: Саморегистрация игрока (роль user) с автовходом
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+      responses:
+        "201":
+          description: Аккаунт создан, сессия открыта, кука установлена
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "409":
+          description: Email уже занят
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/auth/logout:
+    post:
+      tags: [auth]
+      operationId: logout
+      x-status: live
+      summary: Выход (отзыв текущей сессии)
+      security:
+        - cookieAuth: []
+      responses:
+        "204":
+          description: Сессия отозвана, кука очищена
+
+  /api/auth/me:
+    get:
+      tags: [auth]
+      operationId: getMe
+      x-status: live
+      summary: Текущий пользователь по куке сессии
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Активная сессия
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    patch:
+      tags: [auth]
+      operationId: updateMe
+      x-status: live
+      summary: Изменить свой профиль (имя, email-логин, телефон, телеграм)
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MeUpdate"
+      responses:
+        "200":
+          description: Обновлённый профиль
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: Email уже занят
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/auth/me/avatar:
+    post:
+      tags: [auth]
+      operationId: uploadAvatar
+      x-status: live
+      summary: Загрузить свою аватарку (jpeg/png/webp, до 3 МБ; сохраняется 512x512 webp)
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "200":
+          description: Профиль с новым avatar (URL /api/media/avatars/...)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "413":
+          description: Файл больше 3 МБ
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: Файл не является картинкой
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/auth/me/password:
+    post:
+      tags: [auth]
+      operationId: changePassword
+      x-status: live
+      summary: Смена пароля (с проверкой текущего)
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasswordChange"
+      responses:
+        "204":
+          description: Пароль изменён
+        "400":
+          description: Текущий пароль неверен
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/users:
+    get:
+      tags: [users]
+      operationId: listUsers
+      x-status: live
+      summary: Список пользователей (только admin)
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Все пользователи
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/User"
+              example:
+                - id: "5f0c6f1e-8f2a-4f57-9b1a-111111111111"
+                  name: Аня Админ
+                  email: admin@lis.bar
+                  role: admin
+                  is_active: true
+                - id: "5f0c6f1e-8f2a-4f57-9b1a-222222222222"
+                  name: Марк Менеджер
+                  email: manager@lis.bar
+                  role: manager
+                  is_active: true
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [users]
+      operationId: createUser
+      x-status: live
+      summary: Создать пользователя (только admin)
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserCreate"
+      responses:
+        "201":
+          description: Пользователь создан
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: Email уже занят
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/users/{user_id}:
+    get:
+      tags: [users]
+      operationId: getUserDetail
+      x-status: live
+      summary: Профиль пользователя с историей заявок (gamemaster/manager/admin)
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Данные пользователя и его заявки на игры
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Пользователь не найден
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    patch:
+      tags: [users]
+      operationId: updateUser
+      x-status: live
+      summary: Изменить пользователя (только admin)
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserUpdate"
+      responses:
+        "200":
+          description: Обновлённый пользователь
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Пользователь не найден
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/users/{user_id}/revoke-sessions:
+    post:
+      tags: [users]
+      operationId: revokeUserSessions
+      x-status: live
+      summary: Принудительно отозвать все сессии пользователя (только admin)
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Все активные сессии отозваны
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Пользователь не найден
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/games:
+    get:
+      tags: [games]
+      operationId: listGames
+      x-status: live
+      summary: Игры D&D за период (для сетки расписания, без отменённых)
+      parameters:
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Игры периода
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Game"
+              example:
+                - id: "9b1f0000-0000-4000-8000-000000000001"
+                  title: "Проклятие Страда"
+                  description: "Готика, вампиры, Баровия. Новичкам рады."
+                  master: "Гарри Гном"
+                  master_id: "5f0c6f1e-8f2a-4f57-9b1a-333333333333"
+                  starts_at: "2026-09-04T19:00:00+03:00"
+                  duration_hours: 4
+                  seats_total: 6
+                  seats_taken: 4
+                  is_cancelled: false
+                  status: approved
+                  my_booking_status: null
+                - id: "9b1f0000-0000-4000-8000-000000000002"
+                  title: "Затерянные шахты Фанделвера"
+                  description: "Классика для старта."
+                  master: "Гарри Гном"
+                  master_id: "5f0c6f1e-8f2a-4f57-9b1a-333333333333"
+                  starts_at: "2026-09-05T16:00:00+03:00"
+                  duration_hours: 3
+                  seats_total: 5
+                  seats_taken: 5
+                  is_cancelled: false
+                  status: approved
+                  my_booking_status: approved
+    post:
+      tags: [games]
+      operationId: createGame
+      x-status: live
+      summary: >
+        Заявка на игру: ГМ бронирует часы (status pending, ждёт админа);
+        игра от админа подтверждается сразу
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GameCreate"
+      responses:
+        "201":
+          description: Игра создана
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Game"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/games/{game_id}:
+    get:
+      tags: [games]
+      operationId: getGame
+      x-status: live
+      summary: Одна игра (публично для approved; для прямой ссылки и QR)
+      parameters:
+        - name: game_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Игра
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Game"
+        "404":
+          description: Не найдена или недоступна
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      tags: [games]
+      operationId: deleteGame
+      x-status: live
+      summary: Удалить игру вместе с бронями (только admin, необратимо)
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: game_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "204":
+          description: Игра удалена
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Игра не найдена
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    patch:
+      tags: [games]
+      operationId: updateGame
+      x-status: live
+      summary: Изменить игру (ГМ — свою, manager/admin — любую); отмена — is_cancelled
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: game_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GameUpdate"
+      responses:
+        "200":
+          description: Обновлённая игра
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Game"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Игра не найдена
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/games/{game_id}/approve:
+    post:
+      tags: [games]
+      operationId: approveGame
+      x-status: live
+      summary: Подтвердить заявку на игру (только admin)
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: game_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Игра подтверждена, открыта запись игроков
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Game"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Игра не найдена
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/games/{game_id}/reject:
+    post:
+      tags: [games]
+      operationId: rejectGame
+      x-status: live
+      summary: Отклонить заявку на игру (только admin)
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: game_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Заявка отклонена
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Game"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/games/{game_id}/bookings:
+    get:
+      tags: [games]
+      operationId: listGameBookings
+      x-status: live
+      summary: Заявки игроков на игру (ГМ игры или manager/admin)
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: game_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Заявки в порядке подачи
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Booking"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/games/{game_id}/bookings/{booking_id}/approve:
+    post:
+      tags: [games]
+      operationId: approveBooking
+      x-status: live
+      summary: Одобрить заявку игрока (ГМ игры или manager/admin)
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: game_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: booking_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Игрок за столом
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Booking"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: Мест не осталось
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/games/{game_id}/bookings/{booking_id}/reject:
+    post:
+      tags: [games]
+      operationId: rejectBooking
+      x-status: live
+      summary: Отклонить заявку игрока (ГМ игры или manager/admin)
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: game_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: booking_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Заявка отклонена
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Booking"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/games/{game_id}/book:
+    post:
+      tags: [games]
+      operationId: bookSeat
+      x-status: live
+      summary: Подать заявку на место (попадает на одобрение ГМу, status pending)
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: game_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Место занято, возвращается обновлённая игра
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Game"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: Мест нет, уже записан, игра отменена или началась
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      tags: [games]
+      operationId: cancelBooking
+      x-status: live
+      summary: Отменить свою бронь
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: game_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Бронь снята, возвращается обновлённая игра
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Game"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Брони не было
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/quests:
+    get:
+      tags: [quests]
+      operationId: listQuests
+      x-status: live
+      summary: Доска активных заданий + мои персональные + созданные мной
+      security: [{ cookieAuth: [] }]
+      responses:
+        "200":
+          description: Задания с my_status текущего игрока
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Quest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [quests]
+      operationId: createQuest
+      x-status: live
+      summary: >
+        Создать задание. Категории по ролям: general — admin;
+        bar — bartender/manager/admin; game — gamemaster/admin.
+        assignee_id делает задание персональным (сразу «взято»).
+      security: [{ cookieAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/QuestCreate" }
+      responses:
+        "201":
+          description: Задание создано
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Quest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/quests/{quest_id}:
+    patch:
+      tags: [quests]
+      operationId: updateQuest
+      x-status: live
+      summary: Правка задания (автор или админ); is_active=false снимает с доски
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - { name: quest_id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/QuestUpdate" }
+      responses:
+        "200":
+          description: Обновлённое задание
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Quest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/quests/{quest_id}/take:
+    post:
+      tags: [quests]
+      operationId: takeQuest
+      x-status: live
+      summary: Взять задание с доски
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - { name: quest_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Задание у игрока (my_status = taken)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Quest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409":
+          description: Уже взято, разобрано или снято с доски
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /api/quests/{quest_id}/sync:
+    post:
+      tags: [quests]
+      operationId: syncQuest
+      x-status: live
+      summary: Немедленно раздать автоквест всем подходящим активным юзерам (admin)
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - { name: quest_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Сколько юзеров получили задание
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  assigned: { type: integer }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409":
+          description: У задания не включена автовыдача
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /api/quests/{quest_id}/submit:
+    post:
+      tags: [quests]
+      operationId: submitQuest
+      x-status: live
+      summary: Сдать задание на проверку (и повторно после «вернуть»)
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - { name: quest_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: my_status = submitted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Quest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: Задание не брали
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /api/quests/{quest_id}/assignments:
+    get:
+      tags: [quests]
+      operationId: listQuestAssignments
+      x-status: live
+      summary: Заявки исполнителей (автор задания или админ)
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - { name: quest_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Исполнители и статусы
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/QuestAssignment" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/quests/{quest_id}/assignments/{assignment_id}/complete:
+    post:
+      tags: [quests]
+      operationId: completeAssignment
+      x-status: live
+      summary: Засчитать выполнение — игроку начисляется xp_reward
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - { name: quest_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: assignment_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Засчитано
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/QuestAssignment" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409":
+          description: Уже засчитано
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /api/quests/{quest_id}/assignments/{assignment_id}/reject:
+    post:
+      tags: [quests]
+      operationId: rejectAssignment
+      x-status: live
+      summary: Вернуть на доработку (игрок может сдать снова)
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - { name: quest_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: assignment_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Возвращено
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/QuestAssignment" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: sid
+
+  schemas:
+    RoleId:
+      type: string
+      enum: [user, gamemaster, bartender, manager, admin]
+
+    LoginRequest:
+      type: object
+      required: [login, password]
+      properties:
+        login:
+          type: string
+          description: Телеграм-ник (основной способ) или email
+        password:
+          type: string
+      example:
+        login: manager
+        password: demo
+
+    User:
+      type: object
+      required: [id, name, email, role, is_active]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        email:
+          type: [string, "null"]
+          format: email
+        role:
+          $ref: "#/components/schemas/RoleId"
+        is_active:
+          type: boolean
+        phone:
+          type: [string, "null"]
+        telegram:
+          type: [string, "null"]
+          description: Уникален, основной логин
+        title:
+          type: [string, "null"]
+          description: Титул «по заслугам», выдаёт админ
+        avatar:
+          type: [string, "null"]
+          description: Эмодзи-пресет аватара (позже — URL файла)
+        xp:
+          type: integer
+          description: Накопленный опыт (уровень считается по таблице D&D 5e)
+
+    MeUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: [string, "null"]
+        telegram:
+          type: [string, "null"]
+        avatar:
+          type: [string, "null"]
+          maxLength: 16
+
+    PasswordChange:
+      type: object
+      required: [current_password, new_password]
+      properties:
+        current_password:
+          type: string
+        new_password:
+          type: string
+          minLength: 6
+      example:
+        id: "5f0c6f1e-8f2a-4f57-9b1a-222222222222"
+        name: Марк Менеджер
+        email: manager@lis.bar
+        role: manager
+        is_active: true
+
+    RegisterRequest:
+      type: object
+      required: [name, telegram, password]
+      properties:
+        name:
+          type: string
+        telegram:
+          type: string
+          description: Основной логин; '@' и регистр не важны, хранится нормализованным
+        email:
+          type: string
+          format: email
+          description: Опционально, тоже подходит для входа
+        password:
+          type: string
+          minLength: 6
+      example:
+        name: Гарри Гном
+        telegram: harry_dnd
+        password: fireball6
+
+    UserCreate:
+      type: object
+      required: [name, email, password]
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+        role:
+          $ref: "#/components/schemas/RoleId"
+      example:
+        name: Боря Бармен
+        email: bartender2@lis.bar
+        password: secret
+        role: bartender
+
+    UserUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        role:
+          $ref: "#/components/schemas/RoleId"
+        is_active:
+          type: boolean
+        password:
+          type: string
+        title:
+          type: string
+          description: Титул; пустая строка снимает титул
+      example:
+        title: Гроза Страда
+
+    Game:
+      type: object
+      required:
+        [id, title, description, master, master_id, starts_at, duration_hours,
+         seats_total, seats_taken, is_cancelled, status, my_booking_status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        description:
+          type: string
+        master:
+          type: string
+          description: Имя гейм-мастера
+        master_id:
+          type: string
+          format: uuid
+        starts_at:
+          type: string
+          format: date-time
+        duration_hours:
+          type: integer
+          minimum: 1
+        seats_total:
+          type: integer
+        seats_taken:
+          type: integer
+        is_cancelled:
+          type: boolean
+        status:
+          $ref: "#/components/schemas/ApprovalStatus"
+        my_booking_status:
+          oneOf:
+            - $ref: "#/components/schemas/ApprovalStatus"
+            - type: "null"
+          description: Статус заявки текущего пользователя (null — не подавал)
+
+    UserDetail:
+      type: object
+      required: [id, name, email, role, is_active, created_at, bookings]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        role:
+          $ref: "#/components/schemas/RoleId"
+        is_active:
+          type: boolean
+        phone:
+          type: [string, "null"]
+        telegram:
+          type: [string, "null"]
+        title:
+          type: [string, "null"]
+        avatar:
+          type: [string, "null"]
+        xp:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        bookings:
+          type: array
+          items:
+            type: object
+            required: [game_id, game_title, starts_at, status]
+            properties:
+              game_id:
+                type: string
+                format: uuid
+              game_title:
+                type: string
+              starts_at:
+                type: string
+                format: date-time
+              status:
+                $ref: "#/components/schemas/ApprovalStatus"
+
+    QuestCategory:
+      type: string
+      enum: [general, bar, game]
+
+    QuestStatus:
+      type: string
+      enum: [taken, submitted, completed, rejected]
+
+    Condition:
+      type: object
+      required: [field, op]
+      description: >
+        Условие по столбцу view user_facts. Поля: name, email, phone, telegram,
+        title, avatar, role (текст); xp, games_played, games_mastered (число).
+        gte/lte/gt/lt — только для числовых.
+      properties:
+        field: { type: string }
+        op:
+          type: string
+          enum: [filled, eq, ne, gte, lte, gt, lt]
+        value:
+          oneOf:
+            - { type: string }
+            - { type: integer }
+            - { type: "null" }
+      example: { field: xp, op: gte, value: 300 }
+
+    QuestCreate:
+      type: object
+      required: [title, category, xp_reward]
+      properties:
+        title: { type: string, maxLength: 120 }
+        description: { type: string, maxLength: 2000 }
+        category: { $ref: "#/components/schemas/QuestCategory" }
+        xp_reward: { type: integer, minimum: 1, maximum: 10000 }
+        assignee_id: { type: [string, "null"], format: uuid }
+        max_takers: { type: [integer, "null"], minimum: 1, maximum: 100 }
+        deadline: { type: [string, "null"], format: date-time }
+        complete_conditions:
+          type: [array, "null"]
+          description: >
+            Условия выполнения (AND). NULL = ручная проверка. Такое задание
+            зачитывается само, сдать вручную нельзя.
+          items: { $ref: "#/components/schemas/Condition" }
+        auto_assign:
+          type: boolean
+          default: false
+          description: >
+            Выдавать автоматически всем, кто подходит под assign_conditions —
+            сразу при создании, новичкам при регистрации, остальным при входе.
+            Несовместимо с assignee_id.
+        assign_conditions:
+          type: array
+          description: Кому выдавать (AND); [] = всем
+          items: { $ref: "#/components/schemas/Condition" }
+        retro_credit:
+          type: boolean
+          default: true
+          description: >
+            true — зачесть и тем, кто выполнил условие до выдачи (инфляция XP
+            принята осознанно); false — таким игрокам задание не выдаётся вовсе.
+
+    QuestUpdate:
+      type: object
+      properties:
+        title: { type: string, maxLength: 120 }
+        description: { type: string, maxLength: 2000 }
+        xp_reward: { type: integer, minimum: 1, maximum: 10000 }
+        is_active: { type: boolean }
+        deadline: { type: [string, "null"], format: date-time }
+
+    Quest:
+      type: object
+      required:
+        [id, title, description, category, xp_reward, creator, created_by,
+         assignee_id, max_takers, is_active, deadline, takers, my_status]
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        description: { type: string }
+        category: { $ref: "#/components/schemas/QuestCategory" }
+        xp_reward: { type: integer }
+        creator: { type: string }
+        created_by: { type: string, format: uuid }
+        assignee_id: { type: [string, "null"], format: uuid }
+        max_takers: { type: [integer, "null"] }
+        is_active: { type: boolean }
+        deadline: { type: [string, "null"], format: date-time }
+        takers: { type: integer }
+        complete_conditions:
+          type: [array, "null"]
+          items: { $ref: "#/components/schemas/Condition" }
+        auto_assign: { type: boolean }
+        assign_conditions:
+          type: array
+          items: { $ref: "#/components/schemas/Condition" }
+        retro_credit: { type: boolean }
+        my_status:
+          oneOf:
+            - $ref: "#/components/schemas/QuestStatus"
+            - type: "null"
+
+    QuestAssignment:
+      type: object
+      required: [id, user_id, user_name, status, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        user_id: { type: string, format: uuid }
+        user_name: { type: string }
+        status: { $ref: "#/components/schemas/QuestStatus" }
+        updated_at: { type: string, format: date-time }
+
+    ApprovalStatus:
+      type: string
+      enum: [pending, approved, rejected]
+
+    Booking:
+      type: object
+      required: [id, user_id, user_name, status, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        user_name:
+          type: string
+        user_title:
+          type: [string, "null"]
+        status:
+          $ref: "#/components/schemas/ApprovalStatus"
+        created_at:
+          type: string
+          format: date-time
+
+    GameCreate:
+      type: object
+      required: [title, starts_at, seats_total]
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        starts_at:
+          type: string
+          format: date-time
+        duration_hours:
+          type: integer
+          minimum: 1
+          maximum: 12
+          default: 4
+        seats_total:
+          type: integer
+          minimum: 1
+          maximum: 20
+        master_id:
+          type: string
+          format: uuid
+          description: Только для manager/admin; ГМ всегда создаёт за себя
+
+    GameUpdate:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        starts_at:
+          type: string
+          format: date-time
+        duration_hours:
+          type: integer
+          minimum: 1
+          maximum: 12
+        seats_total:
+          type: integer
+          minimum: 1
+          maximum: 20
+        is_cancelled:
+          type: boolean
+
+    Error:
+      type: object
+      required: [detail]
+      properties:
+        detail:
+          type: string
+      example:
+        detail: Не авторизован
+
+  responses:
+    Unauthorized:
+      description: Нет активной сессии или неверные данные
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Forbidden:
+      description: Недостаточно прав
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"

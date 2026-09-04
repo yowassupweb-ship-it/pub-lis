@@ -45,3 +45,11 @@ next-env.d.ts
 
 # рабочие скриншоты
 *.png
+
+# python (backend)
+__pycache__/
+*.pyc
+.venv/
+
+# загруженные файлы
+backend/uploads/

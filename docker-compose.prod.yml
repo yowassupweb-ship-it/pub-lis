@@ -1,0 +1,69 @@
+# Прод/демо на VPS: postgres + api + caddy (TLS).
+# Запуск: docker compose -f docker-compose.prod.yml up -d --build
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: hitry-lis-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-hitry_lis_crm}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?задай POSTGRES_PASSWORD в .env}
+    # наружу порт НЕ пробрасываем — api ходит по внутренней сети
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: ./backend
+    container_name: hitry-lis-api
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-hitry_lis_crm}
+      COOKIE_SECURE: ${COOKIE_SECURE:-1}
+      SESSION_TTL_DAYS: ${SESSION_TTL_DAYS:-30}
+    volumes:
+      - avatar-uploads:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    container_name: hitry-lis-web
+    restart: unless-stopped
+    environment:
+      # запасной путь: если запрос /api дойдёт до next, он уйдёт на api
+      API_PROXY_TARGET: http://api:8000
+    depends_on:
+      - api
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: hitry-lis-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      API_DOMAIN: ${API_DOMAIN:?задай API_DOMAIN в .env (домен или :80)}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - api
+      - web
+
+volumes:
+  postgres-data:
+  caddy-data:
+  caddy-config:
+  avatar-uploads:

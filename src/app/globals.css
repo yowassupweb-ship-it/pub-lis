@@ -26,3 +26,116 @@ button {
   background: #f4f4f5;
   color: #111214;
 }
+
+/* ===== «Таверна» — тема игровой части (расписание, брони, кабинет) ===== */
+.tavern-bg {
+  min-height: 100vh;
+  background-color: #33200f;
+  background-image:
+    repeating-linear-gradient(
+      90deg,
+      rgba(0, 0, 0, 0.22) 0px,
+      rgba(0, 0, 0, 0) 5px,
+      rgba(255, 255, 255, 0.02) 40px,
+      rgba(0, 0, 0, 0.22) 78px
+    ),
+    linear-gradient(#3a2815, #2c1d0e);
+  color: #3b2a16;
+  font-family: Georgia, "Times New Roman", serif;
+}
+.parchment {
+  background: linear-gradient(#f4ead0, #ecdcb6);
+  border: 3px solid #4a3421;
+  border-radius: 8px;
+  box-shadow: 0 5px 0 rgba(0, 0, 0, 0.4), inset 0 0 0 1px rgba(255, 255, 255, 0.4);
+  color: #3b2a16;
+}
+.tavern-ink { color: #3b2a16; }
+.tavern-soft { color: #7c6748; }
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  border-radius: 5px;
+  padding: 0.14rem 0.6rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  border: 2px solid rgba(0, 0, 0, 0.35);
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.25);
+  color: #fff;
+  white-space: nowrap;
+}
+.chip::before { content: "●"; font-size: 0.62em; opacity: 0.85; }
+.chip-gold { background: #e3a83e; color: #3a2708; }
+.chip-green { background: #4f8a3d; }
+.chip-orange { background: #d98a2b; color: #3a2708; }
+.chip-red { background: #b23b2e; }
+.chip-blue { background: #3d6f8a; }
+.chip-purple { background: #7a4f8a; }
+
+.btn-gold,
+.btn-brown,
+.btn-danger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  border-radius: 6px;
+  padding: 0.45rem 0.95rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+  font-family: inherit;
+  transition: filter 0.1s;
+}
+.btn-gold {
+  background: linear-gradient(#f2bd5e, #d99a2b);
+  border: 2px solid #7a5716;
+  color: #3a2708;
+  box-shadow: 0 3px 0 #7a5716;
+}
+.btn-brown {
+  background: #6b4a2b;
+  border: 2px solid #3b2a16;
+  color: #f2e7cb;
+  box-shadow: 0 3px 0 #3b2a16;
+}
+.btn-danger {
+  background: #8a3327;
+  border: 2px solid #4d1c15;
+  color: #f8e5d8;
+  box-shadow: 0 3px 0 #4d1c15;
+}
+.btn-gold:hover, .btn-brown:hover, .btn-danger:hover { filter: brightness(1.08); }
+.btn-gold:active, .btn-brown:active, .btn-danger:active {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.4);
+}
+.btn-gold:disabled, .btn-brown:disabled, .btn-danger:disabled {
+  opacity: 0.55;
+  filter: none;
+  transform: none;
+}
+
+.tavern-input {
+  width: 100%;
+  background: #fdf6e2;
+  border: 2px solid #8a744f;
+  border-radius: 6px;
+  padding: 0.5rem 0.7rem;
+  color: #3b2a16;
+  font-size: 0.9rem;
+  font-family: inherit;
+}
+.tavern-input:focus { outline: none; border-color: #b8860b; background: #fffaf0; }
+.tavern-input::placeholder { color: #a08d67; }
+
+.tavern-label {
+  display: block;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #7c6748;
+  font-weight: 700;
+  margin-bottom: 0.3rem;
+}

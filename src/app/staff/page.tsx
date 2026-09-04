@@ -8,6 +8,8 @@ import {
   ClipboardList,
   ConciergeBell,
   LayoutDashboard,
+  LogIn,
+  LogOut,
   Info,
   Minus,
   PackageCheck,
@@ -26,7 +28,9 @@ import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-type RoleId = "user" | "bartender" | "manager" | "admin";
+import { STAFF_ROLES, apiLogout, apiMe, type ApiUser } from "@/lib/api";
+
+type RoleId = "user" | "gamemaster" | "bartender" | "manager" | "admin";
 type ActiveSection = "warehouse" | "positions";
 type WarehouseTab = "purchases" | "products";
 
@@ -112,10 +116,13 @@ type ProductSeed = {
 
 const roles: Array<{ id: RoleId; label: string }> = [
   { id: "user", label: "Юзер" },
+  { id: "gamemaster", label: "Гейм-мастер" },
   { id: "bartender", label: "Бармен" },
   { id: "manager", label: "Менеджер" },
   { id: "admin", label: "Администратор" },
 ];
+
+const roleLabel = (id: RoleId) => roles.find((r) => r.id === id)?.label ?? id;
 
 const navItems = [
   { id: "shift", label: "Смена", icon: LayoutDashboard, enabled: false },
@@ -768,7 +775,29 @@ function createBlankPosition(): MenuPosition {
 }
 
 export default function Home() {
-  const [currentRole, setCurrentRole] = useState<RoleId>("manager");
+  const [currentRole, setCurrentRole] = useState<RoleId>("user");
+  const [apiUser, setApiUser] = useState<ApiUser | null>(null);
+  const [authState, setAuthState] = useState<"loading" | "guest" | "authed">("loading");
+
+  // роль и имя — из сессии
+  useEffect(() => {
+    apiMe().then((user) => {
+      if (user) {
+        setApiUser(user);
+        setCurrentRole(user.role);
+        setAuthState("authed");
+      } else {
+        setAuthState("guest");
+      }
+    });
+  }, []);
+
+  const handleLogout = () => {
+    apiLogout().finally(() => {
+      setApiUser(null);
+      setAuthState("guest");
+    });
+  };
   const [activeSection, setActiveSection] = useState<ActiveSection>("positions");
   const [activeTab, setActiveTab] = useState<WarehouseTab>("products");
   const [products, setProducts] = useState<Product[]>(() => createInitialProducts());
@@ -1232,6 +1261,46 @@ export default function Home() {
     setIsOrderModalOpen(false);
   };
 
+  if (authState === "loading") {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[#111214] text-zinc-500">
+        Загрузка…
+      </main>
+    );
+  }
+
+  if (authState === "guest" || (apiUser && !STAFF_ROLES.includes(apiUser.role))) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[#111214] p-4 text-zinc-100">
+        <div className="max-w-md text-center">
+          <h1 className="text-3xl font-semibold">Служебный раздел</h1>
+          <p className="mt-3 text-zinc-400">
+            {authState === "guest"
+              ? "Нужно войти под учётной записью персонала."
+              : "Доступно только персоналу бара: бармену, менеджеру и администратору."}
+          </p>
+          <div className="mt-6 flex justify-center gap-3">
+            <a
+              href="/"
+              className="inline-flex items-center gap-2 rounded-md border border-white/8 bg-[#1b1c20] px-4 py-2 text-sm text-zinc-300 transition hover:text-zinc-100"
+            >
+              К расписанию игр
+            </a>
+            {authState === "guest" && (
+              <a
+                href="/login"
+                className="inline-flex items-center gap-2 rounded-md bg-amber-400 px-4 py-2 text-sm font-medium text-zinc-950 transition hover:bg-amber-300"
+              >
+                <LogIn className="h-4 w-4" />
+                Войти
+              </a>
+            )}
+          </div>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="min-h-screen bg-[#111214] text-zinc-100">
       <div className="flex min-h-screen">
@@ -1289,13 +1358,18 @@ export default function Home() {
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
-                <DarkSelect
-                  icon={User}
-                  value={currentRole}
-                  options={roles}
-                  onChange={(value) => setCurrentRole(value as RoleId)}
-                  pill
-                />
+                <span className="flex items-center gap-2 rounded-full border border-white/8 bg-[#1b1c20] px-3 py-1.5 text-xs text-zinc-300">
+                  <User className="h-3.5 w-3.5 text-zinc-500" />
+                  {apiUser ? `${apiUser.name} · ${roleLabel(currentRole)}` : "…"}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  className="flex items-center gap-1.5 rounded-full border border-white/8 bg-[#1b1c20] px-3 py-1.5 text-xs text-zinc-400 transition hover:text-zinc-200"
+                >
+                  <LogOut className="h-3.5 w-3.5" />
+                  Выйти
+                </button>
               </div>
             </div>
           </header>

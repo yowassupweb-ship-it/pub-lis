@@ -1,38 +1,58 @@
-# Деплой lis-pub на Vercel
+# Деплой «Хитрого лиса»
 
-Интерфейс полностью клиентский: данные (склад, закупки, позиции) лежат в коде как тестовые сиды
-и в `localStorage` браузера. Ни базы, ни переменных окружения для показа не нужно.
+Вся система живёт на одном VPS в Docker: Caddy (вход :80/:443) →
+фронт Next.js (`web`) и FastAPI (`api`) → Postgres. Vercel не нужен
+(опционально — превью веток).
 
-## Что уже готово
+## Первый запуск на сервере
 
-- `package.json` → `"name": "lis-pub"` — Vercel предложит именно это имя проекта.
-- `vercel.json` — framework `nextjs`, сборка `next build --webpack`.
-  Webpack выбран специально: локальный нативный `@next/swc-win32-x64-msvc` битый, и эта команда проверена.
-- `.vercelignore` — в деплой не уезжают `node_modules`, `.next`, `db/`, `docker-compose.yml`, скриншоты и заметки агентов.
-- `npm run build` проходит: маршрут `/` собирается как статическая страница.
+Нужны: Docker (`curl -fsSL https://get.docker.com | sh`), открытые порты 80/443.
 
-## Как выложить
+```bash
+git clone <репозиторий> && cd <папка>
+cp .env.example .env
+nano .env   # ОБЯЗАТЕЛЬНО: свой POSTGRES_PASSWORD
+            # API_DOMAIN=домен (TLS сам) или ":80" для демо по IP (тогда COOKIE_SECURE=0)
 
-```powershell
-cd C:\Users\a.nikolyuk\Desktop\лис\bar-crm-temp
-vercel login        # если ещё не залогинен
-vercel              # первый деплой: подтвердить имя проекта lis-pub -> preview-ссылка
-vercel --prod       # продакшн-ссылка lis-pub.vercel.app
+docker compose -f docker-compose.prod.yml up -d --build
+docker compose -f docker-compose.prod.yml exec api alembic upgrade head
+docker compose -f docker-compose.prod.yml exec api python seed.py   # демо-данные
 ```
 
-На вопросы CLI при первом запуске:
+Проверка: `curl http://localhost/api/health` → `{"status":"ok"}`,
+в браузере `http://<IP>` — расписание игр.
 
-- Set up and deploy — `y`
-- Which scope — свой аккаунт
-- Link to existing project — `n`
-- Project name — `lis-pub`
-- Directory — `./`
-- Override settings — `n` (настройки берутся из `vercel.json`)
+Если сборка фронта падает по памяти (VPS < 2ГБ) — добавь swap:
+`fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile`.
 
-## Тестовые данные
+## Обновление
 
-- Закупки засеяны относительными датами: 2, 20 и 60 дней назад, поэтому на демо всегда видно
-  и годные партии, и просроченные.
-- Версия сидов — константа `currentDataVersion` в `src/app/page.tsx`. Если поменять данные,
-  подними версию: браузер пересеет `localStorage` сам.
-- Сбросить демо у себя в браузере: DevTools → Application → Local Storage → удалить ключи `hitry-lis-*`.
+```bash
+git pull
+docker compose -f docker-compose.prod.yml up -d --build
+docker compose -f docker-compose.prod.yml exec api alembic upgrade head
+```
+
+## Полезное
+
+- Роль пользователю: `docker compose -f docker-compose.prod.yml exec api python set_role.py <email> admin`
+  (без аргументов — список всех).
+- Логи: `docker compose -f docker-compose.prod.yml logs -f api` (или web/caddy/postgres).
+- Полный сброс данных: `docker compose -f docker-compose.prod.yml down -v`, затем первый запуск заново.
+- Локальная разработка не меняется: `docker compose up -d` (только Postgres),
+  uvicorn и `npm run dev` руками, мок Prism по README.
+
+## Демо-аккаунты (пароль у всех: demo)
+
+admin@lis.bar (админ) · manager@lis.bar (менеджер) · gm@lis.bar, mira@lis.bar (ГМ)
+· user@lis.bar, polina@lis.bar, stas@lis.bar, vika@lis.bar (игроки)
+
+## Сценарий показа (5 минут)
+
+1. Инкогнито (гость): расписание недели — полная игра серым, полупустая жёлтым.
+2. Регистрация нового игрока → заявка на «Ваншот» → статус «заявка у ГМа».
+3. Окно ГМа (gm@lis.bar): клик по игре → одобрить заявку → у игрока «вы записаны».
+4. ГМ: «Забронировать игру» → заявка уходит админу (фиолетовая в сетке).
+5. Окно админа: клик по фиолетовой → «Подтвердить игру» → открылась запись.
+6. Бонус: клик по имени игрока в заявках → профиль с историей; «Служебный
+   раздел» — склад и позиции бара.

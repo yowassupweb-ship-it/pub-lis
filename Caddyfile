@@ -1,0 +1,12 @@
+# API_DOMAIN = example.com  -> автоматический TLS (Let's Encrypt)
+# API_DOMAIN = :80          -> просто http по IP (для демо без домена;
+#                              тогда в .env поставь COOKIE_SECURE=0)
+# /api/* уходит в FastAPI, всё остальное — во фронт (Next.js).
+{$API_DOMAIN} {
+	handle /api/* {
+		reverse_proxy api:8000
+	}
+	handle {
+		reverse_proxy web:3000
+	}
+}
