@@ -43,7 +43,7 @@ export function TavernShell({
   const items = NAV.filter((i) => i.visible(user));
 
   const aside = (
-    <aside className="flex h-full w-60 shrink-0 flex-col border-r-4 border-black/40 bg-[#241708]/95 px-3 py-4">
+    <aside className="tavern-panel flex h-full w-60 shrink-0 flex-col border-r-4 border-black/40 px-3 py-4 shadow-2xl">
       <Link href="/" onClick={() => setOpen(false)} className="mb-6 flex items-center gap-2 px-2">
         <span className="text-3xl leading-none drop-shadow">🦊</span>
         <span>
@@ -113,11 +113,11 @@ export function TavernShell({
 
   return (
     <div className="tavern-bg flex min-h-screen">
-      <div className="hidden md:flex">{aside}</div>
+      <div className="hidden lg:flex">{aside}</div>
 
       {/* мобильная шапка + выдвижной сайдбар */}
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex items-center gap-2 border-b-4 border-black/40 bg-[#241708]/85 px-3 py-2 md:hidden">
+        <header className="tavern-panel flex items-center gap-2 border-b-4 border-black/40 px-3 py-2 lg:hidden">
           <button type="button" onClick={() => setOpen(true)} className="btn-brown px-2 py-1.5" aria-label="Меню">
             <Menu className="size-4" />
           </button>
@@ -130,7 +130,7 @@ export function TavernShell({
       </div>
 
       {open && (
-        <div className="fixed inset-0 z-50 flex md:hidden" onClick={() => setOpen(false)}>
+        <div className="fixed inset-0 z-50 flex lg:hidden" onClick={() => setOpen(false)}>
           <div className="h-full" onClick={(e) => e.stopPropagation()}>
             {aside}
           </div>

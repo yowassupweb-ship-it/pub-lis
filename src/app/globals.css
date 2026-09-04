@@ -139,3 +139,9 @@ button {
   font-weight: 700;
   margin-bottom: 0.3rem;
 }
+
+/* Панели навигации: сплошной фон — шторка на телефоне не должна просвечивать */
+.tavern-panel {
+  background-color: #241708;
+  background-image: linear-gradient(#2b1c0b, #1e1206);
+}

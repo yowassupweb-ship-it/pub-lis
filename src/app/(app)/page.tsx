@@ -271,7 +271,7 @@ export default function SchedulePage() {
             </div>
           </div>
 
-          <div className="overflow-x-auto rounded-md border-2 border-[#8a744f]">
+          <div className="hidden overflow-x-auto rounded-md border-2 border-[#8a744f] sm:block">
             {/* на телефоне колонка часов липкая, остальное скроллится */}
             <table className="w-full min-w-[560px] border-collapse text-[10px] sm:text-xs">
               <thead>
@@ -347,9 +347,58 @@ export default function SchedulePage() {
             </table>
           </div>
 
+          {/* Телефон: афиша по дням — все игры недели видно без горизонтального скролла */}
+          <div className="space-y-3 sm:hidden">
+            {days.map((day, i) => {
+              const dayGames = games
+                .filter((g) => gameSlot(g, weekStart)?.day === i)
+                .sort((a, b) => a.starts_at.localeCompare(b.starts_at));
+              if (dayGames.length === 0) return null;
+              return (
+                <div key={i}>
+                  <p
+                    className={`mb-1 text-xs font-bold uppercase tracking-wide ${
+                      day.getTime() === today.getTime() ? "text-[#8a4f1d]" : "tavern-soft"
+                    }`}
+                  >
+                    {DAY_NAMES[i]}, {day.toLocaleDateString("ru-RU", { day: "numeric", month: "long" })}
+                  </p>
+                  <div className="space-y-1.5">
+                    {dayGames.map((game) => (
+                      <div
+                        key={game.id}
+                        role="button"
+                        onClick={() => openGame(game)}
+                        className={`rounded-md border-2 border-[#8a744f] p-2 ${cellStyle(game)}`}
+                      >
+                        <div className="flex items-baseline justify-between gap-2">
+                          <b className="truncate text-sm tavern-ink">{game.title}</b>
+                          <span className="shrink-0 text-xs tavern-soft">
+                            {new Date(game.starts_at).toLocaleTimeString("ru-RU", {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}{" "}
+                            · {game.duration_hours} ч
+                          </span>
+                        </div>
+                        <p className="truncate text-xs tavern-soft">
+                          {game.master} · {cellNote(game)}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+            {games.length === 0 && (
+              <p className="py-6 text-center text-sm tavern-soft">На этой неделе игр нет</p>
+            )}
+          </div>
+
           <p className="mt-3 text-xs tavern-soft">
             Будни — с 15:00 до полуночи, в пятницу и выходные — до 04:00. Клик по игре —
             подробности и запись; заявка игрока попадает на одобрение гейм-мастеру.
+            <span className="sm:hidden"> Сетку по часам видно на экране пошире.</span>
           </p>
         </div>
       </section>
