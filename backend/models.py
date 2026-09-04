@@ -117,6 +117,15 @@ class QuestAssignment(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
 
 
+class LoginAttempt(Base):
+    __tablename__ = "login_attempts"
+
+    ident: Mapped[str] = mapped_column(Text, primary_key=True)
+    failures: Mapped[int] = mapped_column(Integer, server_default=text("0"))
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
+
+
 class AuditEvent(Base):
     __tablename__ = "audit_events"
 

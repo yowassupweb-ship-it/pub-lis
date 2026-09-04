@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -54,8 +54,12 @@ async def get_user_detail(
 
 
 @router.get("", response_model=list[UserOut])
-async def list_users(db: Annotated[AsyncSession, Depends(get_db)]) -> list[AppUser]:
-    result = await db.execute(select(AppUser).order_by(AppUser.created_at))
+async def list_users(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    limit: Annotated[int, Query(ge=1, le=500)] = 200,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> list[AppUser]:
+    result = await db.execute(select(AppUser).order_by(AppUser.created_at).limit(limit).offset(offset))
     return list(result.scalars())
 
 

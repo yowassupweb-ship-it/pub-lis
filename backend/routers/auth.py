@@ -6,34 +6,51 @@ from typing import Annotated
 
 from PIL import Image, UnidentifiedImageError
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, UploadFile
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import settings
 from db import get_db
 from deps import COOKIE_NAME, get_current_user, log_event
-from models import AppUser, UserSession
+from models import AppUser, LoginAttempt, UserSession
 from routers.quests import sync_auto_quests
 from schemas import LoginRequest, MeUpdate, PasswordChange, RegisterRequest, UserOut
 from security import hash_password, hash_token, new_session_token, verify_password
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
-# Троттлинг логина: 5 промахов подряд — минута паузы. In-memory, на один процесс
+# Троттлинг логина: 5 промахов подряд — минута паузы. Состояние в БД,
+# поэтому переживает рестарт и общее для всех воркеров.
 MAX_ATTEMPTS = 5
 LOCK_SECONDS = 60
-_failed_logins: dict[str, tuple[int, float]] = {}  # ident -> (промахов, заблокирован до)
+STALE_ATTEMPTS_DAYS = 7  # старые записи чистим, чтобы таблица не росла
 
 
-def _check_login_throttle(email: str) -> None:
-    count, until = _failed_logins.get(email, (0, 0.0))
-    if count >= MAX_ATTEMPTS and time.monotonic() < until:
+async def _check_login_throttle(db: AsyncSession, ident: str) -> None:
+    row = await db.get(LoginAttempt, ident)
+    if row and row.locked_until and row.failures >= MAX_ATTEMPTS and row.locked_until > datetime.now(timezone.utc):
         raise HTTPException(status_code=429, detail="Слишком много попыток, подожди минуту")
 
 
-def _register_login_failure(email: str) -> None:
-    count, _ = _failed_logins.get(email, (0, 0.0))
-    _failed_logins[email] = (count + 1, time.monotonic() + LOCK_SECONDS)
+async def _register_login_failure(db: AsyncSession, ident: str) -> None:
+    now = datetime.now(timezone.utc)
+    await db.execute(
+        pg_insert(LoginAttempt)
+        .values(ident=ident, failures=1, locked_until=now + timedelta(seconds=LOCK_SECONDS), updated_at=now)
+        .on_conflict_do_update(
+            index_elements=["ident"],
+            set_={
+                "failures": LoginAttempt.failures + 1,
+                "locked_until": now + timedelta(seconds=LOCK_SECONDS),
+                "updated_at": now,
+            },
+        )
+    )
+    await db.execute(
+        delete(LoginAttempt).where(LoginAttempt.updated_at < now - timedelta(days=STALE_ATTEMPTS_DAYS))
+    )
+    await db.commit()
 
 
 def normalize_telegram(handle: str) -> str:
@@ -112,7 +129,7 @@ async def login(
 ) -> AppUser:
     # похоже на email — ищем по email, иначе по телеграму
     ident = body.login.strip().lower()
-    _check_login_throttle(ident)
+    await _check_login_throttle(db, ident)
     if "@" in ident[1:]:
         cond = AppUser.email == ident
     else:
@@ -120,9 +137,9 @@ async def login(
     result = await db.execute(select(AppUser).where(cond, AppUser.is_active.is_(True)))
     user = result.scalar_one_or_none()
     if user is None or not user.password_hash or not verify_password(user.password_hash, body.password):
-        _register_login_failure(ident)
+        await _register_login_failure(db, ident)
         raise HTTPException(status_code=401, detail="Неверный логин или пароль")
-    _failed_logins.pop(ident, None)
+    await db.execute(delete(LoginAttempt).where(LoginAttempt.ident == ident))
 
     _start_session(db, request, response, user)
     await sync_auto_quests(db, user)

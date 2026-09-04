@@ -1,8 +1,9 @@
 import uuid
 from datetime import datetime, timezone
+from collections.abc import Sequence
 from typing import Annotated, Any
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy import func, or_, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -145,14 +146,42 @@ async def sync_auto_quests(db: AsyncSession, user: AppUser) -> None:
 
 
 async def sync_everyone(db: AsyncSession) -> int:
-    """Sync по всем активным юзерам. Возвращает число новых выдач."""
-    before = (await db.execute(select(func.count()).select_from(QuestAssignment))).scalar_one()
-    users = (await db.execute(select(AppUser).where(AppUser.is_active.is_(True)))).scalars().all()
-    for u in users:
-        await sync_auto_quests(db, u)
-    await db.flush()
-    after = (await db.execute(select(func.count()).select_from(QuestAssignment))).scalar_one()
-    return after - before
+    """Раздача автоквестов всем подходящим: факты и существующие назначения
+    читаются пачкой, вставка — одним INSERT. Зачёт выполненных при этом не
+    делается — он случится при ближайшем действии юзера (вход, профиль)."""
+    quests = (
+        await db.execute(
+            select(Quest).where(
+                Quest.auto_assign.is_(True), Quest.is_active.is_(True), Quest.assignee_id.is_(None)
+            )
+        )
+    ).scalars().all()
+    if not quests:
+        return 0
+    facts = [dict(r) for r in (await db.execute(text("SELECT * FROM user_facts WHERE is_active"))).mappings()]
+    existing = {
+        (q, u)
+        for q, u in (
+            await db.execute(select(QuestAssignment.quest_id, QuestAssignment.user_id))
+        ).all()
+    }
+    rows = []
+    for quest in quests:
+        for f in facts:
+            if (quest.id, f["id"]) in existing:
+                continue
+            if not conditions_met(f, quest.assign_conditions or []):
+                continue
+            if not quest.retro_credit and conditions_met(f, quest.complete_conditions):
+                continue
+            rows.append({"quest_id": quest.id, "user_id": f["id"], "status": "taken"})
+    if not rows:
+        return 0
+    await db.execute(
+        pg_insert(QuestAssignment).on_conflict_do_nothing(index_elements=["quest_id", "user_id"]),
+        rows,
+    )
+    return len(rows)
 
 
 async def sync_everyone_background() -> None:
@@ -171,41 +200,62 @@ def _can_review(user: AppUser, quest: Quest) -> bool:
     return user.role == "admin" or quest.created_by == user.id
 
 
-async def _quest_out(db: AsyncSession, quest: Quest, me: AppUser) -> QuestOut:
-    creator = await db.get(AppUser, quest.created_by)
-    takers = (
-        await db.execute(
-            select(func.count())
-            .select_from(QuestAssignment)
-            .where(QuestAssignment.quest_id == quest.id, QuestAssignment.status != "rejected")
-        )
-    ).scalar_one()
-    my_status = (
-        await db.execute(
-            select(QuestAssignment.status).where(
-                QuestAssignment.quest_id == quest.id, QuestAssignment.user_id == me.id
+async def _quests_out(db: AsyncSession, quests: Sequence[Quest], me: AppUser) -> list[QuestOut]:
+    """Список заданий за фиксированное число запросов вместо трёх на задание."""
+    if not quests:
+        return []
+    ids = [q.id for q in quests]
+    creators = dict(
+        (
+            await db.execute(
+                select(AppUser.id, AppUser.name).where(AppUser.id.in_({q.created_by for q in quests}))
             )
-        )
-    ).scalar_one_or_none()
-    return QuestOut(
-        id=quest.id,
-        title=quest.title,
-        description=quest.description,
-        category=quest.category,
-        xp_reward=quest.xp_reward,
-        creator=creator.name if creator else "—",
-        created_by=quest.created_by,
-        assignee_id=quest.assignee_id,
-        max_takers=quest.max_takers,
-        is_active=quest.is_active,
-        deadline=quest.deadline,
-        takers=takers,
-        complete_conditions=quest.complete_conditions,
-        auto_assign=quest.auto_assign,
-        assign_conditions=quest.assign_conditions or [],
-        retro_credit=quest.retro_credit,
-        my_status=my_status,
+        ).all()
     )
+    takers = dict(
+        (
+            await db.execute(
+                select(QuestAssignment.quest_id, func.count())
+                .where(QuestAssignment.quest_id.in_(ids), QuestAssignment.status != "rejected")
+                .group_by(QuestAssignment.quest_id)
+            )
+        ).all()
+    )
+    mine = dict(
+        (
+            await db.execute(
+                select(QuestAssignment.quest_id, QuestAssignment.status).where(
+                    QuestAssignment.quest_id.in_(ids), QuestAssignment.user_id == me.id
+                )
+            )
+        ).all()
+    )
+    return [
+        QuestOut(
+            id=q.id,
+            title=q.title,
+            description=q.description,
+            category=q.category,
+            xp_reward=q.xp_reward,
+            creator=creators.get(q.created_by, "—"),
+            created_by=q.created_by,
+            assignee_id=q.assignee_id,
+            max_takers=q.max_takers,
+            is_active=q.is_active,
+            deadline=q.deadline,
+            takers=takers.get(q.id, 0),
+            complete_conditions=q.complete_conditions,
+            auto_assign=q.auto_assign,
+            assign_conditions=q.assign_conditions or [],
+            retro_credit=q.retro_credit,
+            my_status=mine.get(q.id),
+        )
+        for q in quests
+    ]
+
+
+async def _quest_out(db: AsyncSession, quest: Quest, me: AppUser) -> QuestOut:
+    return (await _quests_out(db, [quest], me))[0]
 
 
 async def _get_quest(db: AsyncSession, quest_id: uuid.UUID) -> Quest:
@@ -219,6 +269,8 @@ async def _get_quest(db: AsyncSession, quest_id: uuid.UUID) -> Quest:
 async def list_quests(
     me: Annotated[AppUser, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
+    limit: Annotated[int, Query(ge=1, le=200)] = 100,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[QuestOut]:
     """Доска (активные общие) + мои персональные + созданные мной. Без записи."""
     stmt = (
@@ -232,8 +284,8 @@ async def list_quests(
         )
         .order_by(Quest.created_at.desc())
     )
-    quests = (await db.execute(stmt)).scalars().all()
-    return [await _quest_out(db, q, me) for q in quests]
+    quests = (await db.execute(stmt.limit(limit).offset(offset))).scalars().all()
+    return await _quests_out(db, quests, me)
 
 
 @router.post("", response_model=QuestOut, status_code=201)

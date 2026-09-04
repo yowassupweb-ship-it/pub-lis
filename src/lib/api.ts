@@ -2,7 +2,18 @@
 
 export type ApiRole = "user" | "gamemaster" | "bartender" | "manager" | "admin";
 
+// единственный источник ролевых списков на фронте (бэк — deps.py)
 export const STAFF_ROLES: ApiRole[] = ["bartender", "manager", "admin"];
+export const GAME_MANAGER_ROLES: ApiRole[] = ["gamemaster", "manager", "admin"];
+export const QUEST_CREATABLE: Record<ApiRole, QuestCategory[]> = {
+  admin: ["general", "bar", "game"],
+  manager: ["bar"],
+  bartender: ["bar"],
+  gamemaster: ["game"],
+  user: [],
+};
+export const isStaff = (u: { role: ApiRole } | null) => !!u && STAFF_ROLES.includes(u.role);
+export const canManageGames = (u: { role: ApiRole } | null) => !!u && GAME_MANAGER_ROLES.includes(u.role);
 
 export type ApprovalStatus = "pending" | "approved" | "rejected";
 
@@ -201,22 +212,26 @@ export type MeUpdatePayload = {
 };
 
 // вариант request с текстом ошибки от бэка
-async function requestWithError<T>(path: string, init: RequestInit): Promise<{ data: T | null; error: string | null }> {
+async function requestWithError<T>(
+  path: string,
+  init: RequestInit
+): Promise<{ data: T | null; error: string | null; status: number }> {
   try {
     const res = await fetch(`/api${path}`, {
       credentials: "include",
       headers: { "Content-Type": "application/json" },
       ...init,
     });
-    if (res.status === 204) return { data: null, error: null };
+    if (res.status === 204) return { data: null, error: null, status: 204 };
     const body = await res.json().catch(() => null);
     if (!res.ok) {
       const detail = body && typeof body.detail === "string" ? body.detail : `Ошибка (${res.status})`;
-      return { data: null, error: detail };
+      return { data: null, error: detail, status: res.status };
     }
-    return { data: body as T, error: null };
+    return { data: body as T, error: null, status: res.status };
   } catch {
-    return { data: null, error: "Сервер недоступен" };
+    // status 0 — сеть/сервер недоступен, это не то же самое, что 403 или 404
+    return { data: null, error: "Сервер недоступен", status: 0 };
   }
 }
 

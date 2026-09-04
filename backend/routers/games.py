@@ -1,5 +1,6 @@
 import uuid
 from datetime import date, datetime, timedelta, timezone
+from collections.abc import Sequence
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -49,37 +50,7 @@ def _validate_schedule(starts_at: datetime, duration_hours: int) -> datetime:
 
 
 async def _game_out(db: AsyncSession, game: Game, me: AppUser | None) -> GameOut:
-    master = await db.get(AppUser, game.master_id)
-    taken = (
-        await db.execute(
-            select(func.count())
-            .select_from(GameBooking)
-            .where(GameBooking.game_id == game.id, GameBooking.status == "approved")
-        )
-    ).scalar_one()
-    my_status = None
-    if me is not None:
-        my_status = (
-            await db.execute(
-                select(GameBooking.status).where(
-                    GameBooking.game_id == game.id, GameBooking.user_id == me.id
-                )
-            )
-        ).scalar_one_or_none()
-    return GameOut(
-        id=game.id,
-        title=game.title,
-        description=game.description,
-        master=master.name if master else "—",
-        master_id=game.master_id,
-        starts_at=game.starts_at,
-        duration_hours=game.duration_hours,
-        seats_total=game.seats_total,
-        seats_taken=taken,
-        is_cancelled=game.is_cancelled,
-        status=game.status,
-        my_booking_status=my_status,
-    )
+    return (await _games_out(db, [game], me))[0]
 
 
 async def _get_game(db: AsyncSession, game_id: uuid.UUID) -> Game:
@@ -120,12 +91,63 @@ async def _overlapping_game(db: AsyncSession, user_id: uuid.UUID, game: Game) ->
     return None
 
 
+async def _games_out(db: AsyncSession, games: Sequence[Game], me: AppUser | None) -> list[GameOut]:
+    """Список игр за фиксированное число запросов: мастера, счётчики и свои
+    брони собираются пачкой, а не по одному на игру."""
+    if not games:
+        return []
+    ids = [g.id for g in games]
+    master_ids = {g.master_id for g in games}
+    masters = dict(
+        (await db.execute(select(AppUser.id, AppUser.name).where(AppUser.id.in_(master_ids)))).all()
+    )
+    taken = dict(
+        (
+            await db.execute(
+                select(GameBooking.game_id, func.count())
+                .where(GameBooking.game_id.in_(ids), GameBooking.status == "approved")
+                .group_by(GameBooking.game_id)
+            )
+        ).all()
+    )
+    mine: dict[uuid.UUID, str] = {}
+    if me is not None:
+        mine = dict(
+            (
+                await db.execute(
+                    select(GameBooking.game_id, GameBooking.status).where(
+                        GameBooking.game_id.in_(ids), GameBooking.user_id == me.id
+                    )
+                )
+            ).all()
+        )
+    return [
+        GameOut(
+            id=g.id,
+            title=g.title,
+            description=g.description,
+            master=masters.get(g.master_id, "—"),
+            master_id=g.master_id,
+            starts_at=g.starts_at,
+            duration_hours=g.duration_hours,
+            seats_total=g.seats_total,
+            seats_taken=taken.get(g.id, 0),
+            is_cancelled=g.is_cancelled,
+            status=g.status,
+            my_booking_status=mine.get(g.id),
+        )
+        for g in games
+    ]
+
+
 @router.get("", response_model=list[GameOut])
 async def list_games(
     db: Annotated[AsyncSession, Depends(get_db)],
     me: Annotated[AppUser | None, Depends(get_optional_user)],
     from_: Annotated[date | None, Query(alias="from")] = None,
     to: Annotated[date | None, Query()] = None,
+    limit: Annotated[int, Query(ge=1, le=200)] = 200,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[GameOut]:
     stmt = select(Game).where(Game.is_cancelled.is_(False)).order_by(Game.starts_at)
     # approved — всем; pending — менеджменту и автору; rejected — менеджменту и автору
@@ -141,8 +163,8 @@ async def list_games(
         stmt = stmt.where(Game.starts_at >= datetime(from_.year, from_.month, from_.day, tzinfo=timezone.utc))
     if to is not None:
         stmt = stmt.where(Game.starts_at < datetime(to.year, to.month, to.day, 23, 59, tzinfo=timezone.utc))
-    games = (await db.execute(stmt)).scalars().all()
-    return [await _game_out(db, g, me) for g in games]
+    games = (await db.execute(stmt.limit(limit).offset(offset))).scalars().all()
+    return await _games_out(db, games, me)
 
 
 @router.get("/{game_id}", response_model=GameOut)

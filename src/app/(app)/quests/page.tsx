@@ -7,6 +7,7 @@ import { useSession } from "@/components/SessionContext";
 import {
   CONDITION_FIELDS,
   CONDITION_OPS,
+  QUEST_CREATABLE,
   NUMERIC_CONDITION_FIELDS,
   apiCloseQuest,
   apiCompleteAssignment,
@@ -35,14 +36,6 @@ const STATUS_CHIP: Record<string, { text: string; cls: string }> = {
   submitted: { text: "На проверке", cls: "chip chip-orange" },
   completed: { text: "Выполнено", cls: "chip chip-green" },
   rejected: { text: "Вернули", cls: "chip chip-red" },
-};
-
-// кто какие категории заводит
-const CREATABLE: Record<string, QuestCategory[]> = {
-  admin: ["general", "bar", "game"],
-  manager: ["bar"],
-  bartender: ["bar"],
-  gamemaster: ["game"],
 };
 
 const OP_LABEL = Object.fromEntries(CONDITION_OPS) as Record<ConditionOp, string>;
@@ -137,6 +130,18 @@ export default function QuestsPage() {
     retro_credit: true,
   };
   const [form, setForm] = useState(emptyForm);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  // одна мутация за раз: двойной клик не отправляет дубль
+  const run = (key: string, fn: () => Promise<unknown>) => async () => {
+    if (busy) return;
+    setBusy(key);
+    try {
+      await fn();
+    } finally {
+      setBusy(null);
+    }
+  };
 
   const reload = () => apiQuests().then((list) => setQuests(list ?? []));
 
@@ -151,7 +156,7 @@ export default function QuestsPage() {
   }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const canReview = (q: ApiQuest) => !!user && (user.role === "admin" || q.created_by === user.id);
-  const creatable = user ? CREATABLE[user.role] ?? [] : [];
+  const creatable = user ? QUEST_CREATABLE[user.role] ?? [] : [];
 
   const openQuest = (q: ApiQuest) => {
     const next = expanded === q.id ? null : q.id;
@@ -176,7 +181,8 @@ export default function QuestsPage() {
 
   const submitCreate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.category) return;
+    if (!form.category || busy) return;
+    setBusy("create");
     const { error } = await apiCreateQuest({
       title: form.title.trim(),
       description: form.description.trim(),
@@ -187,6 +193,7 @@ export default function QuestsPage() {
       assign_conditions: form.auto_assign ? normalize(form.assign) : [],
       retro_credit: form.retro_credit,
     });
+    setBusy(null);
     if (error) {
       setNotice(error);
       return;
@@ -265,11 +272,12 @@ export default function QuestsPage() {
                     {q.my_status === null && q.is_active && !canReview(q) && (
                       <button
                         type="button"
-                        onClick={async () => {
+                        onClick={run(`take-${q.id}`, async () => {
                           const { data, error } = await apiTakeQuest(q.id);
                           if (error) setNotice(error);
                           patchQuest(data);
-                        }}
+                        })}
+                        disabled={busy === `take-${q.id}`}
                         className="btn-gold text-xs"
                       >
                         Взять задание
@@ -283,11 +291,12 @@ export default function QuestsPage() {
                     {!q.complete_conditions && (q.my_status === "taken" || q.my_status === "rejected") && (
                       <button
                         type="button"
-                        onClick={async () => {
+                        onClick={run(`submit-${q.id}`, async () => {
                           const { data, error } = await apiSubmitQuest(q.id);
                           if (error) setNotice(error);
                           patchQuest(data);
-                        }}
+                        })}
+                        disabled={busy === `submit-${q.id}`}
                         className="btn-gold text-xs"
                       >
                         {q.my_status === "rejected" ? "Сдать ещё раз" : "Сдать на проверку"}
@@ -311,7 +320,7 @@ export default function QuestsPage() {
                               <span className={STATUS_CHIP[a.status].cls}>{STATUS_CHIP[a.status].text}</span>
                               <button
                                 type="button"
-                                onClick={async () => {
+                                onClick={run(`ok-${a.id}`, async () => {
                                   const { data, error } = await apiCompleteAssignment(q.id, a.id);
                                   if (error) setNotice(error);
                                   if (data)
@@ -320,21 +329,23 @@ export default function QuestsPage() {
                                       [q.id]: (prev[q.id] ?? []).map((x) => (x.id === a.id ? data : x)),
                                     }));
                                   reload();
-                                }}
+                                })}
+                                disabled={busy === `ok-${a.id}`}
                                 className="btn-gold px-2 py-1 text-xs"
                               >
                                 Засчитать
                               </button>
                               <button
                                 type="button"
-                                onClick={async () => {
+                                onClick={run(`no-${a.id}`, async () => {
                                   const { data } = await apiRejectAssignment(q.id, a.id);
                                   if (data)
                                     setAssignments((prev) => ({
                                       ...prev,
                                       [q.id]: (prev[q.id] ?? []).map((x) => (x.id === a.id ? data : x)),
                                     }));
-                                }}
+                                })}
+                                disabled={busy === `no-${a.id}`}
                                 className="btn-danger px-2 py-1 text-xs"
                               >
                                 Вернуть
@@ -361,11 +372,12 @@ export default function QuestsPage() {
                         {q.is_active && q.auto_assign && user?.role === "admin" && (
                           <button
                             type="button"
-                            onClick={async () => {
+                            onClick={run(`sync-${q.id}`, async () => {
                               const { data, error } = await apiSyncQuest(q.id);
                               setNotice(error ?? `Раздано: ${data?.assigned ?? 0}`);
                               reload();
-                            }}
+                            })}
+                            disabled={busy === `sync-${q.id}`}
                             className="btn-gold text-xs"
                             title="Повторно раздать всем подходящим"
                           >
@@ -479,7 +491,9 @@ export default function QuestsPage() {
               games_played, games_mastered (≥ ≤ &gt; &lt; только для них).
             </p>
             {notice && <p className="text-sm font-bold text-[#8a3327]">{notice}</p>}
-            <button type="submit" className="btn-gold w-full">Повесить на доску</button>
+            <button type="submit" disabled={busy === "create"} className="btn-gold w-full">
+              {busy === "create" ? "Секунду…" : "Повесить на доску"}
+            </button>
           </form>
         </div>
       )}

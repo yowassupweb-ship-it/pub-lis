@@ -16,6 +16,7 @@ import {
   apiGames,
   apiRejectBooking,
   apiRejectGame,
+  canManageGames,
   type ApiBooking,
   type ApiGame,
 } from "@/lib/api";
@@ -27,8 +28,6 @@ const endHourFor = (dayIndex: number) => (dayIndex <= 3 ? 24 : 28); // 0 = по�
 const ALL_HOURS = Array.from({ length: 28 - START_HOUR }, (_, i) => START_HOUR + i);
 
 const DAY_NAMES = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
-
-const GAME_MANAGER_ROLES = ["gamemaster", "manager", "admin"];
 
 function mondayOf(date: Date): Date {
   const d = new Date(date);
@@ -87,6 +86,18 @@ export default function SchedulePage() {
   const [qrData, setQrData] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null); // какая мутация выполняется
+
+  // одна кнопка за раз: повторный клик по занятой кнопке ничего не шлёт
+  const run = (key: string, fn: () => Promise<unknown>) => async () => {
+    if (busy) return;
+    setBusy(key);
+    try {
+      await fn();
+    } finally {
+      setBusy(null);
+    }
+  };
   // закрываем только если mousedown и mouseup оба на подложке — иначе выделение текста
   // с уводом курсора за модалку её закрывало
   const mouseDownOnOverlay = useRef(false);
@@ -174,6 +185,8 @@ export default function SchedulePage() {
 
   const submitCreate = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (busy) return;
+    setBusy("create");
     const { data: created, error } = await apiCreateGame({
       title: form.title.trim(),
       description: form.description.trim(),
@@ -181,6 +194,7 @@ export default function SchedulePage() {
       duration_hours: Number(form.duration_hours),
       seats_total: Number(form.seats_total),
     });
+    setBusy(null);
     if (!created) {
       setNotice(error ?? "Не удалось создать заявку");
       return;
@@ -226,7 +240,7 @@ export default function SchedulePage() {
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-2">
               <span className="chip chip-gold">Расписание игр</span>
-              {user && GAME_MANAGER_ROLES.includes(user.role) && (
+              {canManageGames(user) && (
                 <button type="button" onClick={() => setCreateOpen(true)} className="btn-gold text-xs">
                   <Plus className="h-3.5 w-3.5" />
                   Забронировать игру
@@ -379,14 +393,15 @@ export default function SchedulePage() {
                   (selected.seats_taken < selected.seats_total ? (
                     <button
                       type="button"
-                      onClick={async () => {
+                      onClick={run("book", async () => {
                         const { data: updated, error } = await apiBookSeat(selected.id);
                         if (updated) patchGameInState(updated);
                         else setNotice(error ?? "Не удалось подать заявку");
-                      }}
+                      })}
+                      disabled={busy === "book"}
                       className="btn-gold w-full"
                     >
-                      Подать заявку на место
+                      {busy === "book" ? "Секунду…" : "Подать заявку на место"}
                     </button>
                   ) : (
                     <p className="text-sm tavern-soft">Мест не осталось</p>
@@ -396,7 +411,8 @@ export default function SchedulePage() {
                     <span className="chip chip-blue">Заявка у ГМа</span>
                     <button
                       type="button"
-                      onClick={async () => patchGameInState(await apiCancelBooking(selected.id))}
+                      onClick={run("cancel", async () => patchGameInState(await apiCancelBooking(selected.id)))}
+                      disabled={busy === "cancel"}
                       className="btn-brown text-xs"
                     >
                       Отозвать
@@ -408,7 +424,8 @@ export default function SchedulePage() {
                     <span className="chip chip-green">Вы записаны</span>
                     <button
                       type="button"
-                      onClick={async () => patchGameInState(await apiCancelBooking(selected.id))}
+                      onClick={run("cancel", async () => patchGameInState(await apiCancelBooking(selected.id)))}
+                      disabled={busy === "cancel"}
                       className="btn-brown text-xs"
                     >
                       Отменить запись
@@ -432,10 +449,11 @@ export default function SchedulePage() {
                 <div className="mt-4 flex gap-2">
                   <button
                     type="button"
-                    onClick={async () => {
+                    onClick={run("approveGame", async () => {
                       patchGameInState(await apiApproveGame(selected.id));
                       reloadGames();
-                    }}
+                    })}
+                    disabled={busy === "approveGame"}
                     className="btn-gold flex-1"
                   >
                     <Check className="size-4" />
@@ -444,11 +462,12 @@ export default function SchedulePage() {
                   {selected.status === "pending" && (
                     <button
                       type="button"
-                      onClick={async () => {
+                      onClick={run("rejectGame", async () => {
                         const updated = await apiRejectGame(selected.id);
                         patchGameInState(updated);
                         reloadGames();
-                      }}
+                      })}
+                      disabled={busy === "rejectGame"}
                       className="btn-danger flex-1"
                     >
                       <X className="size-4" /> Отклонить
@@ -471,11 +490,12 @@ export default function SchedulePage() {
                     <div className="mt-2 flex gap-2">
                       <button
                         type="button"
-                        onClick={async () => {
+                        onClick={run("delete", async () => {
                           await apiDeleteGame(selected.id);
                           setSelected(null);
                           reloadGames();
-                        }}
+                        })}
+                        disabled={busy === "delete"}
                         className="btn-danger text-xs"
                       >
                         Да, удалить
@@ -537,7 +557,7 @@ export default function SchedulePage() {
                       <span className="flex gap-1.5">
                         <button
                           type="button"
-                          onClick={async () => {
+                          onClick={run(`approve-${b.id}`, async () => {
                             const updated = await apiApproveBooking(selected.id, b.id);
                             if (!updated) {
                               setNotice("Не удалось одобрить заявку");
@@ -548,14 +568,15 @@ export default function SchedulePage() {
                             );
                             apiGame(selected.id).then(patchGameInState);
                             reloadGames();
-                          }}
+                          })}
+                          disabled={busy === `approve-${b.id}`}
                           className="btn-gold px-2 py-1 text-xs"
                         >
                           Одобрить
                         </button>
                         <button
                           type="button"
-                          onClick={async () => {
+                          onClick={run(`reject-${b.id}`, async () => {
                             const updated = await apiRejectBooking(selected.id, b.id);
                             if (updated)
                               setBookings((prev) =>
@@ -563,7 +584,8 @@ export default function SchedulePage() {
                               );
                             apiGame(selected.id).then(patchGameInState);
                             reloadGames();
-                          }}
+                          })}
+                          disabled={busy === `reject-${b.id}`}
                           className="btn-danger px-2 py-1 text-xs"
                         >
                           Отклонить
@@ -656,8 +678,8 @@ export default function SchedulePage() {
               </label>
             </div>
             {notice && <p className="text-sm font-bold text-[#8a3327]">{notice}</p>}
-            <button type="submit" className="btn-gold w-full">
-              Отправить заявку
+            <button type="submit" disabled={busy === "create"} className="btn-gold w-full">
+              {busy === "create" ? "Секунду…" : "Отправить заявку"}
             </button>
           </form>
         </div>

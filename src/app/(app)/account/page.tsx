@@ -12,6 +12,7 @@ import {
   apiQuests,
   apiUpdateMe,
   apiUploadAvatar,
+  canManageGames,
   isAvatarUrl,
   levelFromXp,
   XP_THRESHOLDS,
@@ -329,7 +330,7 @@ export default function AccountPage() {
                 </span>
               </div>
 
-              {["gamemaster", "manager", "admin"].includes(user.role) && (
+              {canManageGames(user) && (
                 <div className="parchment p-4">
                   <span className="chip chip-orange mb-3">Мои игры как мастера</span>
                   {masteredGames.length === 0 ? (
