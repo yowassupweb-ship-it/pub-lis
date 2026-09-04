@@ -45,6 +45,10 @@ next-env.d.ts
 
 # рабочие скриншоты
 *.png
+# ...но графика приложения — часть кода, без неё на проде 404
+!public/*.png
+!public/**/*.png
+!src/app/*.png
 
 # python (backend)
 __pycache__/
