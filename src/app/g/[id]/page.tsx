@@ -1,6 +1,7 @@
 "use client";
 
 import { CalendarDays, LogIn, Users } from "lucide-react";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
@@ -63,16 +64,16 @@ export default function GameLandingPage() {
   return (
     <main className="tavern-bg flex min-h-screen items-center justify-center p-3 sm:p-4">
       <div className="w-full max-w-md">
-        <a href="/" className="mb-4 flex items-center justify-center gap-2 text-sm text-[#b09a72] hover:text-[#f2e7cb]">
-          <span className="text-xl">🦊</span> Таверна «Хитрый Лис» · D&amp;D
-        </a>
+        <Link href="/" className="mb-4 flex items-center justify-center gap-2 text-sm text-[#9a8b75] hover:text-[#ece3d2]">
+          <span className="text-xl">🦊</span> Лисья Нора · D&amp;D
+        </Link>
 
-        {!loaded && <p className="text-center text-[#b09a72]">Загрузка…</p>}
+        {!loaded && <p className="text-center text-[#9a8b75]">Загрузка…</p>}
 
         {loaded && !game && (
-          <p className="text-center text-[#d9c9a3]">
+          <p className="text-center text-[#cfc2ab]">
             Игра не найдена или ещё не подтверждена.{" "}
-            <a href="/" className="text-[#e3a83e] underline">К расписанию</a>
+            <a href="/games" className="text-[#e3a83e] underline">К расписанию</a>
           </p>
         )}
 
@@ -96,7 +97,7 @@ export default function GameLandingPage() {
             </p>
             {game.description && <p className="mt-3 text-sm tavern-ink">{game.description}</p>}
 
-            <div className="mt-5 border-t-2 border-[#c9b58a] pt-4">
+            <div className="mt-5 border-t-2 border-[#262018] pt-4">
               {started && <p className="text-sm tavern-soft">Игра уже началась</p>}
 
               {!started && user && (
@@ -178,7 +179,7 @@ export default function GameLandingPage() {
                 </>
               )}
 
-              {error && <p className="mt-3 text-sm font-bold text-[#8a3327]">{error}</p>}
+              {error && <p className="mt-3 text-sm font-bold text-[#e79b8f]">{error}</p>}
             </div>
           </div>
         )}

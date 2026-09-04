@@ -350,3 +350,109 @@ export const apiApproveBooking = (gameId: string, bookingId: string) =>
 
 export const apiRejectBooking = (gameId: string, bookingId: string) =>
   request<ApiBooking>(`/games/${gameId}/bookings/${bookingId}/reject`, { method: "POST" });
+
+// ---------------------------------------------------------------------------
+// Пока без бэка: в openapi.yaml эти пути стоят как mock. Если мок-сервер не
+// поднят, запрос вернёт null — тогда отдаём демо-данные, чтобы экран не пустовал.
+// Как только бэк реализует путь, тут ничего менять не нужно.
+// ---------------------------------------------------------------------------
+
+export type ApiNews = {
+  id: string;
+  title: string;
+  excerpt: string;
+  published_at: string;
+  cover: string | null;
+};
+
+export type ApiNotification = { id: string; text: string; created_at: string; read: boolean };
+
+export type ApiCharacter = {
+  id: string;
+  name: string;
+  race: string;
+  klass: string;
+  subclass: string;
+  alignment: string;
+  level: number;
+  xp: number;
+  xp_next: number;
+  hp: number;
+  hp_max: number;
+  ac: number;
+  initiative: number;
+  portrait: string | null;
+  stats: { str: number; dex: number; con: number; int: number; wis: number; cha: number };
+  skills: Array<{ name: string; bonus: number }>;
+  gear: Array<{ name: string; icon: string }>;
+};
+
+export type ApiChronicle = {
+  id: string;
+  title: string;
+  date: string;
+  status: "in_progress" | "finished";
+  cover: string | null;
+  entries: Array<{ date: string; text: string }>;
+};
+
+export type ApiAchievement = {
+  id: string;
+  title: string;
+  description: string;
+  icon: string;
+  earned_at: string | null;
+};
+
+export type ApiGameSession = {
+  game_id: string;
+  started_at: string | null;
+  elapsed_seconds: number;
+  running: boolean;
+  participants: Array<{ name: string; hp: number; hp_max: number; is_master: boolean }>;
+  notes: Array<{ id: string; text: string; created_at: string }>;
+};
+
+export const DEMO_NEWS: ApiNews[] = [
+  {
+    id: "demo-news-1",
+    title: "Турнир по D&D: Зов Лисьей Норы",
+    excerpt: "В конце мая состоится большой турнир для искателей приключений!",
+    published_at: new Date().toISOString(),
+    cover: null,
+  },
+  {
+    id: "demo-news-2",
+    title: "Новый мастер в Норе",
+    excerpt: "Мириэль водит кампанию по Забытым Королевствам каждую среду.",
+    published_at: new Date(Date.now() - 3 * 86_400_000).toISOString(),
+    cover: null,
+  },
+];
+
+export const DEMO_CHARACTER: ApiCharacter = {
+  id: "demo-character",
+  name: "Безымянный",
+  race: "Человек",
+  klass: "Странник",
+  subclass: "Новичок",
+  alignment: "Нейтральный",
+  level: 1,
+  xp: 0,
+  xp_next: 300,
+  hp: 10,
+  hp_max: 10,
+  ac: 10,
+  initiative: 0,
+  portrait: null,
+  stats: { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 },
+  skills: [],
+  gear: [],
+};
+
+export const apiNews = async () => (await request<ApiNews[]>("/news")) ?? DEMO_NEWS;
+export const apiNotifications = async () => (await request<ApiNotification[]>("/notifications")) ?? [];
+export const apiMyCharacter = () => request<ApiCharacter>("/characters/me");
+export const apiChronicles = async () => (await request<ApiChronicle[]>("/chronicles")) ?? [];
+export const apiAchievements = async () => (await request<ApiAchievement[]>("/achievements")) ?? [];
+export const apiGameSession = (gameId: string) => request<ApiGameSession>(`/games/${gameId}/session`);
