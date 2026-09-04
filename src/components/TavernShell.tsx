@@ -15,6 +15,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { TavernLogo } from "@/components/TavernLogo";
+import { UserAvatar } from "@/components/UserAvatar";
 import { STAFF_ROLES, apiLogout, apiNotifications, type ApiNotification, type ApiUser } from "@/lib/api";
 
 type NavItem = {
@@ -39,22 +41,6 @@ const NAV: NavItem[] = [
 const isActive = (pathname: string, href: string) =>
   href === "/" ? pathname === "/" : pathname.startsWith(href);
 
-/** Аватар: эмодзи-пресет или загруженный файл. */
-function Avatar({ user, className = "" }: { user: ApiUser; className?: string }) {
-  return (
-    <span
-      className={`grid shrink-0 place-items-center overflow-hidden rounded-full border border-[#33291c] bg-[#16110d] ${className}`}
-    >
-      {user.avatar?.startsWith("/") ? (
-        /* eslint-disable-next-line @next/next/no-img-element */
-        <img src={user.avatar} alt="" className="h-full w-full object-cover" />
-      ) : (
-        (user.avatar ?? "🧙")
-      )}
-    </span>
-  );
-}
-
 /**
  * Каркас игровых страниц. На широком экране — сайдбар слева, на телефоне и
  * планшете шапка сверху и таб-бар снизу, как в мобильном приложении Норы.
@@ -75,6 +61,7 @@ export function TavernShell({
   const pathname = usePathname();
   const [notifications, setNotifications] = useState<ApiNotification[]>([]);
   const [bellOpen, setBellOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
     if (!user) return; // гость уведомлений не получает; список просто не запрашиваем
@@ -88,7 +75,11 @@ export function TavernShell({
   }, [user]);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setBellOpen(false);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      setBellOpen(false);
+      setMenuOpen(false);
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
@@ -96,13 +87,13 @@ export function TavernShell({
   const logout = () => (onLogout ? onLogout() : apiLogout().then(() => window.location.reload()));
   const items = NAV.filter((i) => i.visible(user));
   const tabs = items.filter((i) => i.tab);
+  // то, что не влезло в таб-бар, живёт в меню под аватаркой
+  const extraItems = items.filter((i) => !i.tab);
   const unread = notifications.filter((n) => !n.read).length;
 
   const brand = (
     <Link href="/" className="flex items-center gap-2.5">
-      <span className="grid size-9 shrink-0 place-items-center rounded-lg border border-[#33291c] bg-[#16110d] text-lg leading-none">
-        🦊
-      </span>
+      <TavernLogo size={38} />
       <span className="leading-tight">
         <span className="block text-sm font-bold uppercase tracking-[0.16em] text-[#ece3d2]">
           Лисья <span className="tavern-gold">Нора</span>
@@ -164,6 +155,69 @@ export function TavernShell({
     </div>
   );
 
+  // Телефон и планшет: всё, чего нет в таб-баре — под аватаркой в шапке.
+  // Здесь же выход: на узком экране сайдбара с кнопкой «Выйти» просто нет.
+  const userMenu = user && (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setMenuOpen((v) => !v)}
+        className="flex items-center rounded-full border border-[#33291c] p-0.5 hover:border-[#d3a24a]/50"
+        aria-label="Меню профиля"
+        aria-expanded={menuOpen}
+      >
+        <UserAvatar avatar={user.avatar} name={user.name} className="size-8 text-sm" />
+      </button>
+      {menuOpen && (
+        <>
+          <button
+            type="button"
+            className="fixed inset-0 z-40 cursor-default"
+            onClick={() => setMenuOpen(false)}
+            aria-label="Закрыть меню"
+          />
+          <div className="parchment absolute right-0 top-11 z-50 w-60 p-2">
+            <Link
+              href="/account"
+              onClick={() => setMenuOpen(false)}
+              className="mb-1 flex items-center gap-2 rounded-lg px-2 py-2 hover:bg-white/5"
+            >
+              <UserAvatar avatar={user.avatar} name={user.name} className="size-9 text-base" />
+              <span className="min-w-0">
+                <span className="block truncate text-sm font-bold text-[#ece3d2]">{user.name}</span>
+                {user.title && (
+                  <span className="block truncate text-[10px] italic tavern-gold">✦ {user.title}</span>
+                )}
+              </span>
+            </Link>
+
+            {extraItems.length > 0 && (
+              <div className="border-t border-[#262018] py-1">
+                {extraItems.map(({ href, label, icon: Icon }) => (
+                  <Link
+                    key={href}
+                    href={href}
+                    onClick={() => setMenuOpen(false)}
+                    className="flex items-center gap-2.5 rounded-lg px-2 py-2 text-sm font-bold text-[#cfc2ab] hover:bg-white/5 hover:text-[#ece3d2]"
+                  >
+                    <Icon className="size-4 shrink-0" />
+                    {label}
+                  </Link>
+                ))}
+              </div>
+            )}
+
+            <div className="border-t border-[#262018] pt-2">
+              <button type="button" onClick={logout} className="btn-brown w-full text-xs">
+                <LogOut className="size-3.5" /> Выйти
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+
   return (
     <div className="tavern-bg flex min-h-screen">
       {/* Десктоп: сайдбар */}
@@ -196,7 +250,7 @@ export function TavernShell({
           {user ? (
             <>
               <Link href="/account" className="mb-2 flex items-center gap-2 px-1 text-sm text-[#ece3d2]">
-                <Avatar user={user} className="size-9 text-base" />
+                <UserAvatar avatar={user.avatar} name={user.name} className="size-9 text-base" />
                 <span className="min-w-0">
                   <span className="block truncate font-bold">{user.name}</span>
                   {user.title && (
@@ -223,7 +277,12 @@ export function TavernShell({
         <header className="tavern-panel sticky top-0 z-30 flex items-center justify-between gap-2 border-b px-4 py-2.5 lg:hidden">
           {brand}
           {user
-            ? bell
+            ? (
+                <div className="flex items-center gap-2">
+                  {bell}
+                  {userMenu}
+                </div>
+              )
             : authChecked && (
                 <Link href="/login" className="btn-gold px-3 py-1.5 text-xs">
                   <LogIn className="size-3.5" /> Войти

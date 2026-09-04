@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { SceneCover } from "@/components/SceneCover";
 import { useSession } from "@/components/SessionContext";
 import {
   apiApproveBooking,
@@ -426,9 +427,7 @@ export default function GamesPage() {
                         onClick={() => openGame(game)}
                         className="card-2 flex w-full items-center gap-3 p-2.5 text-left transition hover:border-[#d3a24a]/40"
                       >
-                        <span className="poster grid size-14 shrink-0 place-items-center rounded-lg text-xl">
-                          🎲
-                        </span>
+                        <SceneCover text={`${game.title} ${game.description}`} seed={game.id} className="size-16 shrink-0 rounded-lg" />
                         <span className="min-w-0 flex-1">
                           <span className="block truncate font-bold text-[#ece3d2]">{game.title}</span>
                           <span className="block text-xs tavern-soft">

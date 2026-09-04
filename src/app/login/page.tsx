@@ -4,6 +4,7 @@ import { LogIn, UserPlus } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+import { TavernLogo } from "@/components/TavernLogo";
 import { apiLogin, apiRegister } from "@/lib/api";
 
 type Mode = "login" | "register";
@@ -49,7 +50,7 @@ export default function LoginPage() {
     <main className="tavern-bg flex min-h-screen items-center justify-center p-3 sm:p-4">
       <div className="w-full max-w-sm">
         <div className="mb-5 flex flex-col items-center gap-1 text-center">
-          <span className="text-5xl drop-shadow">🦊</span>
+          <TavernLogo size={72} className="drop-shadow" />
           <h1 className="text-2xl font-bold text-[#ece3d2]">
             Таверна «Хитрый <span className="text-[#e3a83e]">Лис</span>»
           </h1>

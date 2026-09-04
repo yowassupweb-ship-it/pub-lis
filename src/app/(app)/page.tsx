@@ -4,6 +4,7 @@ import { CalendarDays, Dices, ScrollText, Shield, Users } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import { SceneCover } from "@/components/SceneCover";
 import { useSession } from "@/components/SessionContext";
 import { apiGames, apiNews, type ApiGame, type ApiNews } from "@/lib/api";
 
@@ -125,7 +126,7 @@ export default function HomePage() {
                   href="/games"
                   className="parchment block overflow-hidden transition hover:border-[#d3a24a]/40"
                 >
-                  <span className="poster flex h-28 items-end p-3 text-3xl sm:h-32">🐉</span>
+                  <SceneCover text={`${game.title} ${game.description}`} seed={game.id} className="h-32 sm:h-36" />
                   <span className="block p-3">
                     <span className="block truncate text-base font-bold text-[#ece3d2]">{game.title}</span>
                     <span className="mt-0.5 block text-xs tavern-soft">
@@ -152,7 +153,7 @@ export default function HomePage() {
         <ul className="space-y-2">
           {news.map((item) => (
             <li key={item.id} className="parchment flex items-start gap-3 p-3">
-              <span className="poster grid size-14 shrink-0 place-items-center rounded-lg text-xl">📜</span>
+              <SceneCover text={item.title} seed={item.id} className="size-16 shrink-0 rounded-lg" />
               <span className="min-w-0">
                 <span className="block font-bold text-[#ece3d2]">{item.title}</span>
                 <span className="block text-xs leading-snug tavern-soft">{item.excerpt}</span>

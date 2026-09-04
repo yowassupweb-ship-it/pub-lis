@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { TavernLogo } from "@/components/TavernLogo";
 import {
   apiBookSeat,
   apiCancelBooking,
@@ -65,7 +66,7 @@ export default function GameLandingPage() {
     <main className="tavern-bg flex min-h-screen items-center justify-center p-3 sm:p-4">
       <div className="w-full max-w-md">
         <Link href="/" className="mb-4 flex items-center justify-center gap-2 text-sm text-[#9a8b75] hover:text-[#ece3d2]">
-          <span className="text-xl">🦊</span> Лисья Нора · D&amp;D
+          <TavernLogo size={28} /> Лисья Нора · D&amp;D
         </Link>
 
         {!loaded && <p className="text-center text-[#9a8b75]">Загрузка…</p>}

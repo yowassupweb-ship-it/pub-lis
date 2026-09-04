@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import { SceneCover } from "@/components/SceneCover";
 import { useSession } from "@/components/SessionContext";
 import {
   apiAchievements,
@@ -70,8 +71,8 @@ export default function ChroniclesPage() {
           <ul className="space-y-4">
             {chronicles.map((c) => (
               <li key={c.id} className="parchment overflow-hidden">
-                <div className="poster relative flex h-32 items-end p-4 sm:h-40">
-                  <div>
+                <SceneCover as="div" text={c.title} seed={c.id} className="relative flex h-36 items-end p-4 sm:h-44">
+                  <div className="relative">
                     <h2 className="text-lg font-bold text-[#ece3d2]">{c.title}</h2>
                     <p className="text-xs tavern-soft">
                       {new Date(c.date).toLocaleDateString("ru-RU", {
@@ -88,7 +89,7 @@ export default function ChroniclesPage() {
                       <span className="chip chip-green">Завершено</span>
                     )}
                   </span>
-                </div>
+                </SceneCover>
 
                 {/* Лента событий: слева дата, справа запись, между ними линия времени */}
                 <ol className="p-4">

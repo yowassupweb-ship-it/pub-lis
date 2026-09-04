@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { useSession } from "@/components/SessionContext";
+import { PORTRAITS, UserAvatar, portraitKey } from "@/components/UserAvatar";
 import {
   apiCancelBooking,
   apiChangePassword,
@@ -13,7 +14,6 @@ import {
   apiUpdateMe,
   apiUploadAvatar,
   canManageGames,
-  isAvatarUrl,
   levelFromXp,
   XP_THRESHOLDS,
   type ApiGame,
@@ -26,8 +26,6 @@ function isoDate(d: Date): string {
     d.getDate()
   ).padStart(2, "0")}`;
 }
-
-const AVATAR_PRESETS = ["🧙", "🧝", "🧛", "🧟", "🦹", "🧚", "🧜", "🥷", "🐉", "🦊", "⚔️", "🎲"];
 
 // уровень по-лисьи: 1 хвост, 3 хвоста, 5 хвостов
 function tails(n: number): string {
@@ -166,14 +164,11 @@ export default function AccountPage() {
           <div className="grid gap-4 md:grid-cols-[200px_1fr_220px] xl:grid-cols-[240px_1fr_280px]">
             <div className="space-y-4">
               <div className="parchment p-4 text-center">
-                <div className="mx-auto grid aspect-square w-full max-w-[190px] place-items-center overflow-hidden rounded-md border-4 border-[#33291c] bg-[#16110d] text-7xl shadow-inner">
-                  {isAvatarUrl(user.avatar) ? (
-                    /* eslint-disable-next-line @next/next/no-img-element */
-                    <img src={user.avatar} alt="Аватар" className="h-full w-full object-cover" />
-                  ) : (
-                    user.avatar ?? "🧙"
-                  )}
-                </div>
+                <UserAvatar
+                  avatar={user.avatar}
+                  name={user.name}
+                  className="mx-auto aspect-square w-full max-w-[190px] !rounded-full border-2 border-[#33291c] text-7xl shadow-inner"
+                />
                 <h2 className="mt-3 text-lg font-bold tavern-ink">{user.name}</h2>
                 {user.telegram && <p className="text-xs tavern-soft">@{user.telegram}</p>}
                 <button
@@ -185,21 +180,21 @@ export default function AccountPage() {
                 </button>
                 {avatarPickerOpen && (
                   <>
-                    <div className="mt-3 grid grid-cols-4 gap-2">
-                      {AVATAR_PRESETS.map((a) => (
+                    <div className="mt-3 grid grid-cols-3 gap-2">
+                      {PORTRAITS.map(([id, label]) => (
                         <button
-                          key={a}
+                          key={id}
                           type="button"
-                          onClick={() => pickAvatar(a)}
-                          className={`grid aspect-square place-items-center rounded-md border-2 text-2xl transition hover:bg-[#171009] ${
-                            (user.avatar ?? "🧙") === a
-                              ? "border-[#b8860b] bg-[#e3a83e]/40"
-                              : "border-[#262018] bg-[#171009]/40"
+                          onClick={() => pickAvatar(portraitKey(id))}
+                          className={`aspect-square overflow-hidden rounded-full border-2 bg-cover bg-center transition hover:border-[#d3a24a]/60 ${
+                            user.avatar === portraitKey(id)
+                              ? "border-[#d3a24a] ring-2 ring-[#d3a24a]/40"
+                              : "border-[#262018]"
                           }`}
-                          title="Выбрать аватар"
-                        >
-                          {a}
-                        </button>
+                          style={{ backgroundImage: `url(/avatars/${id}.webp)` }}
+                          title={label}
+                          aria-label={`Аватар: ${label}`}
+                        />
                       ))}
                     </div>
                     <label className="btn-gold mt-3 w-full cursor-pointer text-xs">

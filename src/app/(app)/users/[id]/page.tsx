@@ -1,10 +1,10 @@
 "use client";
 
-import { User } from "lucide-react";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { useSession } from "@/components/SessionContext";
+import { UserAvatar } from "@/components/UserAvatar";
 import { apiAdminUpdateUser, apiUserDetail, type ApiUserDetail } from "@/lib/api";
 
 const ROLE_LABELS: Record<string, string> = {
@@ -65,14 +65,7 @@ export default function UserDetailPage() {
         {detail && (
           <>
             <div className="parchment flex items-center gap-3 p-4 sm:gap-4 sm:p-5">
-              <span className="grid size-14 shrink-0 place-items-center overflow-hidden rounded-md border-2 border-[#33291c] bg-[#16110d] text-3xl">
-                {detail.avatar?.startsWith("/") ? (
-                  /* eslint-disable-next-line @next/next/no-img-element */
-                  <img src={detail.avatar} alt="" className="h-full w-full object-cover" />
-                ) : (
-                  detail.avatar ?? <User className="size-6 text-[#9a8b75]" />
-                )}
-              </span>
+              <UserAvatar avatar={detail.avatar} name={detail.name} className="size-16 text-3xl" />
               <div className="min-w-0">
                 <h1 className="flex flex-wrap items-center gap-2 text-xl font-bold tavern-ink">
                   {detail.name}
