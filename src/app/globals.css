@@ -18,6 +18,18 @@ body {
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
 }
 
+/* Оверлейный скролл, как в macOS/iOS: скроллится всё так же, но без видимой
+   полосы и без сдвига контента, когда у элемента появляется/пропадает скролл. */
+html {
+  scrollbar-gutter: stable;
+}
+* {
+  scrollbar-width: none;
+}
+*::-webkit-scrollbar {
+  display: none;
+}
+
 button {
   cursor: pointer;
 }
@@ -25,6 +37,10 @@ button {
 ::selection {
   background: #f4f4f5;
   color: #111214;
+}
+
+.tavern-font {
+  font-family: Georgia, "Times New Roman", serif;
 }
 
 /* ===== «Таверна» — тема игровой части (расписание, брони, кабинет) ===== */

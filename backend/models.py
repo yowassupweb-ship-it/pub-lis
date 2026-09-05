@@ -1,7 +1,8 @@
 import uuid
+from datetime import date as date_type
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Text, text
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, Text, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -25,6 +26,7 @@ class AppUser(Base):
     telegram: Mapped[str | None] = mapped_column(Text)
     title: Mapped[str | None] = mapped_column(Text)  # выдаёт админ
     avatar: Mapped[str | None] = mapped_column(Text)  # эмодзи или URL загруженного файла
+    comment: Mapped[str] = mapped_column(Text, server_default="")  # заметка персонала о госте
     xp: Mapped[int] = mapped_column(Integer, server_default=text("0"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
@@ -112,6 +114,51 @@ class QuestAssignment(Base):
     status: Mapped[str] = mapped_column(Text, server_default="taken")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
+
+
+class FloorMap(Base):
+    __tablename__ = "floor_maps"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    name: Mapped[str] = mapped_column(Text)
+    layout: Mapped[dict] = mapped_column(
+        JSONB, server_default=text("""'{"walls":[],"tables":[],"doors":[]}'::jsonb""")
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
+
+
+class TableBooking(Base):
+    __tablename__ = "table_bookings"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    map_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("floor_maps.id", ondelete="CASCADE"))
+    table_id: Mapped[str] = mapped_column(Text)
+    booking_date: Mapped[date_type] = mapped_column(Date)
+    time_start: Mapped[str | None] = mapped_column(Text)
+    time_end: Mapped[str | None] = mapped_column(Text)
+    guest_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("app_users.id", ondelete="SET NULL"))
+    guest_name: Mapped[str | None] = mapped_column(Text)
+    comment: Mapped[str] = mapped_column(Text, server_default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
+
+
+class Event(Base):
+    __tablename__ = "events"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    name: Mapped[str] = mapped_column(Text)
+    participants_count: Mapped[int] = mapped_column(Integer)
+    date_from: Mapped[date_type] = mapped_column(Date)
+    date_to: Mapped[date_type] = mapped_column(Date)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
 
 
 class LoginAttempt(Base):

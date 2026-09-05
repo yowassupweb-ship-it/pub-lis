@@ -1,4 +1,4 @@
-# Хитрый лис CRM
+# CRM бара
 
 CRM для бара: фронт на Next.js, бэк на Python (FastAPI + uvicorn), Postgres.
 

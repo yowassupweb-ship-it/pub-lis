@@ -1,6 +1,6 @@
 import uuid
-from datetime import datetime
-from typing import Literal
+from datetime import date, datetime
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
@@ -19,6 +19,7 @@ class UserOut(BaseModel):
     telegram: str | None = None
     title: str | None = None
     avatar: str | None = None
+    comment: str = ""
     xp: int = 0
 
 
@@ -55,6 +56,20 @@ class UserCreate(BaseModel):
     email: EmailStr
     password: str
     role: RoleId = "user"
+
+
+class GuestCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    phone: str | None = Field(default=None, pattern=PHONE_PATTERN)
+    telegram: str | None = Field(default=None, max_length=64)
+    comment: str = Field(default="", max_length=500)
+
+
+class GuestUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    phone: str | None = Field(default=None, pattern=PHONE_PATTERN)
+    telegram: str | None = Field(default=None, max_length=64)
+    comment: str | None = Field(default=None, max_length=500)
 
 
 class UserUpdate(BaseModel):
@@ -194,3 +209,79 @@ class GameUpdate(BaseModel):
     duration_hours: int | None = Field(default=None, ge=1, le=12)
     seats_total: int | None = Field(default=None, ge=1, le=20)
     is_cancelled: bool | None = None
+
+
+# ── Столы: карта зала (стены/столы/двери) и брони по дате ──────────────────
+
+
+class FloorMapMeta(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+    updated_at: datetime
+
+
+class FloorMapOut(FloorMapMeta):
+    layout: dict[str, Any]
+    created_at: datetime
+
+
+class FloorMapCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+
+
+class FloorMapLayoutUpdate(BaseModel):
+    layout: dict[str, Any]
+
+
+class TableBookingOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    map_id: uuid.UUID
+    table_id: str
+    booking_date: date
+    time_start: str | None = None
+    time_end: str | None = None
+    guest_id: uuid.UUID | None = None
+    guest_name: str | None = None
+    comment: str = ""
+
+
+class TableBookingCreate(BaseModel):
+    table_id: str
+    booking_date: date
+    time_start: str | None = Field(default=None, max_length=5)
+    time_end: str | None = Field(default=None, max_length=5)
+    guest_id: uuid.UUID | None = None
+    guest_name: str | None = Field(default=None, max_length=80)
+    comment: str = Field(default="", max_length=500)
+
+
+class TableBookingUpdate(BaseModel):
+    time_start: str | None = Field(default=None, max_length=5)
+    time_end: str | None = Field(default=None, max_length=5)
+    guest_id: uuid.UUID | None = None
+    guest_name: str | None = Field(default=None, max_length=80)
+    comment: str | None = Field(default=None, max_length=500)
+
+
+# ── Мероприятия: название, число участников, диапазон дат ──────────────────
+
+
+class EventOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+    participants_count: int
+    date_from: date
+    date_to: date
+
+
+class EventCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    participants_count: int = Field(ge=0, le=10000)
+    date_from: date
+    date_to: date

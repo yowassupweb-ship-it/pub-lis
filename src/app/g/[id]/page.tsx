@@ -64,7 +64,7 @@ export default function GameLandingPage() {
     <main className="tavern-bg flex min-h-screen items-center justify-center p-3 sm:p-4">
       <div className="w-full max-w-md">
         <a href="/" className="mb-4 flex items-center justify-center gap-2 text-sm text-[#b09a72] hover:text-[#f2e7cb]">
-          <span className="text-xl">🦊</span> Таверна «Хитрый Лис» · D&amp;D
+          <span className="text-xl">🦊</span> Таверна · D&amp;D
         </a>
 
         {!loaded && <p className="text-center text-[#b09a72]">Загрузка…</p>}

@@ -389,6 +389,329 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /api/floor-maps:
+    get:
+      tags: [tables]
+      operationId: listFloorMaps
+      x-status: live
+      summary: Список карт зала (персонал)
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Карты зала (без layout)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FloorMapMeta"
+    post:
+      tags: [tables]
+      operationId: createFloorMap
+      x-status: live
+      summary: Создать карту зала (персонал)
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+      responses:
+        "201":
+          description: Карта создана
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FloorMap"
+
+  /api/floor-maps/{map_id}:
+    get:
+      tags: [tables]
+      operationId: getFloorMap
+      x-status: live
+      summary: Карта зала с layout (стены/столы/двери)
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: map_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Карта зала
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FloorMap"
+    put:
+      tags: [tables]
+      operationId: updateFloorMapLayout
+      x-status: live
+      summary: Сохранить layout карты (персонал)
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: map_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [layout]
+              properties:
+                layout: { type: object }
+      responses:
+        "200":
+          description: Layout сохранён
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FloorMap"
+    delete:
+      tags: [tables]
+      operationId: deleteFloorMap
+      x-status: live
+      summary: Удалить карту зала (персонал)
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: map_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "204":
+          description: Карта удалена
+
+  /api/floor-maps/{map_id}/bookings:
+    get:
+      tags: [tables]
+      operationId: listTableBookings
+      x-status: live
+      summary: Брони столов на карте, с фильтром по датам (персонал)
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: map_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: date_from
+          in: query
+          schema: { type: string, format: date }
+        - name: date_to
+          in: query
+          schema: { type: string, format: date }
+      responses:
+        "200":
+          description: Список броней
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TableBooking"
+    post:
+      tags: [tables]
+      operationId: createTableBooking
+      x-status: live
+      summary: Забронировать стол на дату/время (персонал)
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: map_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TableBookingCreate"
+      responses:
+        "201":
+          description: Бронь создана
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TableBooking"
+
+  /api/floor-maps/{map_id}/bookings/{booking_id}:
+    patch:
+      tags: [tables]
+      operationId: updateTableBooking
+      x-status: live
+      summary: Изменить бронь стола (персонал)
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: map_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: booking_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Бронь обновлена
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TableBooking"
+    delete:
+      tags: [tables]
+      operationId: deleteTableBooking
+      x-status: live
+      summary: Удалить бронь стола (персонал)
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: map_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: booking_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "204":
+          description: Бронь удалена
+
+  /api/events:
+    get:
+      tags: [events]
+      operationId: listEvents
+      x-status: live
+      summary: Мероприятия, пересекающие диапазон дат (персонал)
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: date_from
+          in: query
+          schema: { type: string, format: date }
+        - name: date_to
+          in: query
+          schema: { type: string, format: date }
+      responses:
+        "200":
+          description: Список мероприятий
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Event"
+    post:
+      tags: [events]
+      operationId: createEvent
+      x-status: live
+      summary: Создать мероприятие (персонал)
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, participants_count, date_from, date_to]
+              properties:
+                name: { type: string }
+                participants_count: { type: integer }
+                date_from: { type: string, format: date }
+                date_to: { type: string, format: date }
+      responses:
+        "201":
+          description: Мероприятие создано
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Event"
+
+  /api/events/{event_id}:
+    delete:
+      tags: [events]
+      operationId: deleteEvent
+      x-status: live
+      summary: Удалить мероприятие (персонал)
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: event_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "204":
+          description: Мероприятие удалено
+
+  /api/guests:
+    get:
+      tags: [guests]
+      operationId: listGuests
+      x-status: live
+      summary: Список гостей бара (персонал — бармен, менеджер, админ)
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Гости (app_users с ролью user)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/User"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [guests]
+      operationId: createGuest
+      x-status: live
+      summary: Добавить гостя (персонал — бармен, менеджер, админ)
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GuestCreate"
+      responses:
+        "201":
+          description: Гость создан
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
   /api/games:
     get:
       tags: [games]
@@ -1010,6 +1333,9 @@ components:
         xp:
           type: integer
           description: Накопленный опыт (уровень считается по таблице D&D 5e)
+        comment:
+          type: string
+          description: Заметка персонала (для гостей — например «любит лагер»)
 
     MeUpdate:
       type: object
@@ -1063,6 +1389,85 @@ components:
         name: Гарри Гном
         telegram: harry_dnd
         password: fireball6
+
+    Event:
+      type: object
+      required: [id, name, participants_count, date_from, date_to]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        participants_count: { type: integer }
+        date_from: { type: string, format: date }
+        date_to: { type: string, format: date }
+
+    GuestCreate:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        phone:
+          type: [string, "null"]
+        telegram:
+          type: [string, "null"]
+        comment:
+          type: string
+      example:
+        name: Иван Гость
+        phone: "+7 900 000-00-00"
+        telegram: ivan_guest
+        comment: Любит лагер
+
+    FloorMapMeta:
+      type: object
+      required: [id, name, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        updated_at: { type: string, format: date-time }
+
+    FloorMap:
+      allOf:
+        - $ref: "#/components/schemas/FloorMapMeta"
+        - type: object
+          required: [layout, created_at]
+          properties:
+            layout:
+              type: object
+              description: "{ walls: [], tables: [], doors: [] } — редактируется целиком на фронте"
+            created_at: { type: string, format: date-time }
+
+    TableBooking:
+      type: object
+      required: [id, map_id, table_id, booking_date, comment]
+      properties:
+        id: { type: string, format: uuid }
+        map_id: { type: string, format: uuid }
+        table_id: { type: string, description: "id стола внутри layout.tables[]" }
+        booking_date: { type: string, format: date }
+        time_start: { type: [string, "null"] }
+        time_end: { type: [string, "null"] }
+        guest_id: { type: [string, "null"], format: uuid }
+        guest_name: { type: [string, "null"] }
+        comment: { type: string }
+
+    TableBookingCreate:
+      type: object
+      required: [table_id, booking_date]
+      properties:
+        table_id: { type: string }
+        booking_date: { type: string, format: date }
+        time_start: { type: string }
+        time_end: { type: string }
+        guest_id: { type: string, format: uuid }
+        guest_name: { type: string }
+        comment: { type: string }
+      example:
+        table_id: t1
+        booking_date: "2026-09-06"
+        time_start: "18:00"
+        time_end: "20:00"
+        guest_name: Иван Гость
 
     UserCreate:
       type: object

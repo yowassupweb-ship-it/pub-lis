@@ -79,6 +79,7 @@ export type ApiUser = {
   telegram: string | null;
   title: string | null;
   avatar: string | null;
+  comment: string;
   xp: number;
 };
 
@@ -203,6 +204,10 @@ export const apiUsers = () => request<ApiUser[]>("/users");
 
 export const apiUserDetail = (userId: string) => request<ApiUserDetail>(`/users/${userId}`);
 
+export const apiGuests = () => request<ApiUser[]>("/guests");
+
+export type GuestCreatePayload = { name: string; phone?: string; telegram?: string; comment?: string };
+
 export type MeUpdatePayload = {
   name?: string;
   email?: string;
@@ -240,6 +245,15 @@ export const apiAdminUpdateUser = (userId: string, payload: { title?: string }) 
     method: "PATCH",
     body: JSON.stringify(payload),
   });
+
+export const apiCreateGuest = (payload: GuestCreatePayload) =>
+  requestWithError<ApiUser>("/guests", { method: "POST", body: JSON.stringify(payload) });
+
+export const apiUpdateGuest = (guestId: string, payload: Partial<GuestCreatePayload>) =>
+  requestWithError<ApiUser>(`/guests/${guestId}`, { method: "PATCH", body: JSON.stringify(payload) });
+
+export const apiDeleteGuest = (guestId: string) =>
+  requestWithError<null>(`/guests/${guestId}`, { method: "DELETE" });
 
 export const apiUpdateMe = (payload: MeUpdatePayload) =>
   requestWithError<ApiUser>("/auth/me", { method: "PATCH", body: JSON.stringify(payload) });
@@ -318,6 +332,100 @@ export const apiChangePassword = (current_password: string, new_password: string
     method: "POST",
     body: JSON.stringify({ current_password, new_password }),
   });
+
+// ── Столы: карта зала и брони ────────────────────────────────────────────
+
+export type ApiFloorMapMeta = { id: string; name: string; updated_at: string };
+
+export type FloorLayout = { walls: unknown[]; tables: unknown[]; doors: unknown[] };
+
+export type ApiFloorMap = ApiFloorMapMeta & { layout: FloorLayout; created_at: string };
+
+export type ApiTableBooking = {
+  id: string;
+  map_id: string;
+  table_id: string;
+  booking_date: string;
+  time_start: string | null;
+  time_end: string | null;
+  guest_id: string | null;
+  guest_name: string | null;
+  comment: string;
+};
+
+export type TableBookingPayload = {
+  table_id: string;
+  booking_date: string;
+  time_start?: string;
+  time_end?: string;
+  guest_id?: string;
+  guest_name?: string;
+  comment?: string;
+};
+
+export const apiFloorMaps = () => request<ApiFloorMapMeta[]>("/floor-maps");
+
+export const apiCreateFloorMap = (name: string) =>
+  requestWithError<ApiFloorMap>("/floor-maps", { method: "POST", body: JSON.stringify({ name }) });
+
+export const apiFloorMap = (mapId: string) => request<ApiFloorMap>(`/floor-maps/${mapId}`);
+
+export const apiSaveFloorMapLayout = (mapId: string, layout: FloorLayout) =>
+  requestWithError<ApiFloorMap>(`/floor-maps/${mapId}`, {
+    method: "PUT",
+    body: JSON.stringify({ layout }),
+  });
+
+export const apiDeleteFloorMap = (mapId: string) =>
+  requestWithError<null>(`/floor-maps/${mapId}`, { method: "DELETE" });
+
+export const apiTableBookings = (mapId: string, dateFrom: string, dateTo: string) =>
+  request<ApiTableBooking[]>(`/floor-maps/${mapId}/bookings?date_from=${dateFrom}&date_to=${dateTo}`);
+
+export const apiCreateTableBooking = (mapId: string, payload: TableBookingPayload) =>
+  requestWithError<ApiTableBooking>(`/floor-maps/${mapId}/bookings`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+
+export const apiUpdateTableBooking = (
+  mapId: string,
+  bookingId: string,
+  payload: Partial<TableBookingPayload>,
+) =>
+  requestWithError<ApiTableBooking>(`/floor-maps/${mapId}/bookings/${bookingId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+
+export const apiDeleteTableBooking = (mapId: string, bookingId: string) =>
+  requestWithError<null>(`/floor-maps/${mapId}/bookings/${bookingId}`, { method: "DELETE" });
+
+// ── Мероприятия ──────────────────────────────────────────────────────────
+
+export type ApiEvent = {
+  id: string;
+  name: string;
+  participants_count: number;
+  date_from: string;
+  date_to: string;
+};
+
+export type EventCreatePayload = { name: string; participants_count: number; date_from: string; date_to: string };
+
+export const apiEvents = (dateFrom?: string, dateTo?: string) => {
+  const qs = new URLSearchParams();
+  if (dateFrom) qs.set("date_from", dateFrom);
+  if (dateTo) qs.set("date_to", dateTo);
+  const suffix = qs.toString() ? `?${qs}` : "";
+  return request<ApiEvent[]>(`/events${suffix}`);
+};
+
+export const apiCreateEvent = (payload: EventCreatePayload) =>
+  requestWithError<ApiEvent>("/events", { method: "POST", body: JSON.stringify(payload) });
+
+export const apiDeleteEvent = (eventId: string) =>
+  requestWithError<null>(`/events/${eventId}`, { method: "DELETE" });
 
 export const apiGame = (gameId: string) => request<ApiGame>(`/games/${gameId}`);
 

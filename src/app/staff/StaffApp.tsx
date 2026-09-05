@@ -2,17 +2,22 @@
 
 import {
   Archive,
+  BarChart3,
   CalendarDays,
+  Check,
   ChevronDown,
   CircleDollarSign,
   ClipboardList,
   ConciergeBell,
+  PartyPopper,
   LayoutDashboard,
   LogIn,
   LogOut,
   Info,
+  Menu,
   Minus,
   PackageCheck,
+  Pencil,
   Plus,
   Search,
   Settings,
@@ -21,18 +26,40 @@ import {
   User,
   UsersRound,
   Utensils,
-  Wine,
   X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import Image from "next/image";
+import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { STAFF_ROLES, apiLogout, apiMe, type ApiUser } from "@/lib/api";
+import {
+  STAFF_ROLES,
+  apiCreateGuest,
+  apiDeleteGuest,
+  apiGuests,
+  apiUpdateGuest,
+  apiLogout,
+  apiMe,
+  type ApiUser,
+} from "@/lib/api";
+import { PRODUCT_TYPES } from "@/lib/productTypes";
+import EventsSection from "./EventsSection";
+import TablesSection from "./TablesSection";
 
 type RoleId = "user" | "gamemaster" | "bartender" | "manager" | "admin";
-type ActiveSection = "warehouse" | "positions";
-type WarehouseTab = "purchases" | "products";
+type ActiveSection =
+  | "warehouse"
+  | "positions"
+  | "guests"
+  | "tables"
+  | "orders"
+  | "shift"
+  | "finance"
+  | "events"
+  | "stats";
+type WarehouseTab = "purchases" | "products" | "write-offs";
 
 type ParsedItem = {
   id: string;
@@ -83,9 +110,45 @@ type PurchaseRecord = {
   total: number;
 };
 
+type WriteOffRecord = {
+  id: string;
+  createdAt: string;
+  productName: string;
+  batchId: string;
+  amount: number;
+  unit: string;
+  reason: string;
+  value: number;
+};
+
+const WRITE_OFF_REASONS = ["Просрочка", "Порча", "Бой/потери", "Излишек по инвентаризации", "Другое"];
+
+type OrderLineRecord = {
+  name: string;
+  quantity: number;
+  price: number;
+  comment?: string;
+  ingredients: { name: string; amount: string }[];
+};
+
+type OrderRecord = {
+  id: string;
+  number: number;
+  createdAt: string;
+  completedAt: string | null;
+  items: OrderLineRecord[];
+  total: number;
+  status: "active" | "completed" | "cancelled";
+  kitchenStatus: "new" | "accepted" | "done";
+  route: "kitchen" | "self";
+  guestId: string | null;
+  guestName: string | null;
+};
+
 type MenuIngredient = {
   id: string;
   typeId: string;
+  altTypeIds?: string[];
   amount: string;
 };
 
@@ -96,8 +159,13 @@ type MenuPosition = {
   imageUrl: string;
   orderStep?: number;
   orderUnit?: string;
+  categoryId?: string | null;
+  comment?: string;
   ingredients: MenuIngredient[];
 };
+
+type MenuCategory = { id: string; name: string };
+const uncategorizedCategoryId = "__uncategorized__";
 
 type ProductSeed = {
   id: string;
@@ -125,38 +193,31 @@ const roles: Array<{ id: RoleId; label: string }> = [
 const roleLabel = (id: RoleId) => roles.find((r) => r.id === id)?.label ?? id;
 
 const navItems = [
-  { id: "shift", label: "Смена", icon: LayoutDashboard, enabled: false },
-  { id: "orders", label: "Заказы", icon: ClipboardList, enabled: false },
-  { id: "tables", label: "Столы", icon: ConciergeBell, enabled: false },
-  { id: "guests", label: "Гости", icon: UsersRound, enabled: false },
+  { id: "shift", label: "Смена", icon: LayoutDashboard, enabled: true },
+  { id: "orders", label: "Заказы", icon: ClipboardList, enabled: true },
+  { id: "tables", label: "Столы", icon: ConciergeBell, enabled: true },
+  { id: "guests", label: "Гости", icon: UsersRound, enabled: true },
   { id: "warehouse", label: "Склад", icon: PackageCheck, enabled: true },
   { id: "positions", label: "Позиции", icon: Utensils, enabled: true },
-  { id: "finance", label: "Финансы", icon: CircleDollarSign, enabled: false },
+  { id: "finance", label: "Финансы", icon: CircleDollarSign, enabled: true },
+  { id: "stats", label: "Статистика", icon: BarChart3, enabled: true },
+  { id: "events", label: "Мероприятия", icon: PartyPopper, enabled: true },
   { id: "settings", label: "Настройки", icon: Settings, enabled: false },
 ];
 
-const productTypes: ProductType[] = [
-  { id: "type-burger-bun", name: "Булочка бургерная", unit: "шт" },
-  { id: "type-bacon", name: "Бекон", unit: "кг" },
-  { id: "type-cheese-sauce", name: "Соус сырный", unit: "кг" },
-  { id: "type-bbq-sauce", name: "Соус BBQ", unit: "кг" },
-  { id: "type-garlic-sauce", name: "Соус чесночный", unit: "кг" },
-  { id: "type-mustard-sauce", name: "Соус горчичный", unit: "кг" },
-  { id: "type-caesar-sauce", name: "Соус цезарь", unit: "кг" },
-  { id: "type-dried-onion", name: "Лук сушеный", unit: "кг" },
-  { id: "type-onion-rings", name: "Луковые кольца", unit: "кг" },
-  { id: "type-fries", name: "Картофель фри", unit: "кг" },
-  { id: "type-potato-wedges", name: "Картофельные дольки", unit: "кг" },
-  { id: "type-fish-sticks", name: "Рыбные палочки", unit: "кг" },
-  { id: "type-calamari", name: "Кольца кальмара", unit: "кг" },
-  { id: "type-chicken-wings", name: "Куриные крылья", unit: "кг" },
-  { id: "type-pickled-cucumber", name: "Огурец маринованный", unit: "кг" },
-  { id: "type-draft-lager", name: "Пиво лагер разливное", unit: "л" },
-  { id: "type-draft-ipa", name: "Пиво IPA разливное", unit: "л" },
-  { id: "type-draft-stout", name: "Пиво стаут разливное", unit: "л" },
-  { id: "type-plastic-bottle-05", name: "Бутылка пластиковая 0.5", unit: "шт" },
-  { id: "type-misc", name: "Другое", unit: "шт" },
-];
+const SECTION_TITLES: Record<string, string> = {
+  positions: "Позиции",
+  guests: "Гости",
+  tables: "Столы",
+  orders: "Заказы",
+  shift: "Смена",
+  finance: "Финансы",
+  stats: "Статистика",
+  events: "Мероприятия",
+  warehouse: "Склад",
+};
+
+const productTypes: ProductType[] = PRODUCT_TYPES;
 
 const productSeeds: ProductSeed[] = [
   {
@@ -464,6 +525,11 @@ const formatOrderQuantity = (position: MenuPosition, quantity: number) => {
 const productsStorageKey = "hitry-lis-products";
 const purchasesStorageKey = "hitry-lis-purchases";
 const menuStorageKey = "hitry-lis-menu-positions";
+const ordersStorageKey = "hitry-lis-orders";
+const orderCounterStorageKey = "hitry-lis-order-counter";
+const writeOffsStorageKey = "hitry-lis-write-offs";
+const shiftNotesStorageKey = "hitry-lis-shift-notes";
+const menuCategoriesStorageKey = "hitry-lis-menu-categories";
 
 function normalizeName(name: string) {
   return name
@@ -693,6 +759,17 @@ function formatMoney(value: number | null) {
   }).format(value);
 }
 
+function formatDuration(ms: number) {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes >= 60) {
+    const hours = Math.floor(minutes / 60);
+    return `${hours} ч ${minutes % 60} мин`;
+  }
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
 function daysAgo(days: number) {
   const value = new Date();
   value.setDate(value.getDate() - days);
@@ -717,6 +794,10 @@ function daysBetween(from: string, to: string) {
 
 function numericInput(value: string) {
   return value.replace(/[^\d.,]/g, "").replace(",", ".");
+}
+
+function shortId(id: string) {
+  return id.replace(/-/g, "").slice(-6).toUpperCase();
 }
 
 function shelfPercent(batch: StockBatch) {
@@ -770,11 +851,12 @@ function createBlankPosition(): MenuPosition {
     name: "",
     price: "",
     imageUrl: "",
+    categoryId: null,
     ingredients: [{ id: "draft-ingredient-1", typeId: "", amount: "" }],
   };
 }
 
-export default function Home() {
+export default function StaffApp() {
   const [currentRole, setCurrentRole] = useState<RoleId>("user");
   const [apiUser, setApiUser] = useState<ApiUser | null>(null);
   const [authState, setAuthState] = useState<"loading" | "guest" | "authed">("loading");
@@ -798,17 +880,80 @@ export default function Home() {
       setAuthState("guest");
     });
   };
-  const [activeSection, setActiveSection] = useState<ActiveSection>("positions");
+  // Раздел живёт в обычном React-state, а не в Next-роутинге: переключение
+  // должно быть мгновенным, без перерисовки страницы через router.push
+  // (это давало заметную заминку/мигание при каждом клике по вкладке).
+  // URL в адресной строке при этом всё равно обновляется вручную —
+  // раздел можно освежить по F5 или дать ссылку коллеге.
+  const parseSectionFromPath = (path: string): ActiveSection => {
+    const slug = path.replace(/^\/staff\/?/, "").split("/")[0];
+    return (
+      [
+        "warehouse",
+        "positions",
+        "guests",
+        "tables",
+        "orders",
+        "shift",
+        "finance",
+        "stats",
+        "events",
+      ] as ActiveSection[]
+    ).includes(slug as ActiveSection)
+      ? (slug as ActiveSection)
+      : "positions";
+  };
+  // usePathname() тут только ради безопасной SSR/гидратации первого рендера —
+  // сервер и клиент видят одно и то же значение. После монтирования раздел
+  // живёт своей жизнью в activeSectionState и от этого пути уже не зависит.
+  const initialPathname = usePathname();
+  const [activeSection, setActiveSectionState] = useState<ActiveSection>(() =>
+    parseSectionFromPath(initialPathname),
+  );
+  const setActiveSection = (section: ActiveSection) => {
+    setActiveSectionState(section);
+    window.history.pushState(null, "", `/staff/${section}`);
+  };
+  useEffect(() => {
+    const onPopState = () => setActiveSectionState(parseSectionFromPath(window.location.pathname));
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
   const [activeTab, setActiveTab] = useState<WarehouseTab>("products");
   const [products, setProducts] = useState<Product[]>(() => createInitialProducts());
   const [purchases, setPurchases] = useState<PurchaseRecord[]>(initialPurchases);
   const [menuPositions, setMenuPositions] = useState<MenuPosition[]>(initialMenuPositions);
+  const [menuCategories, setMenuCategories] = useState<MenuCategory[]>([]);
+  const [activeCategoryId, setActiveCategoryId] = useState<string>("all");
+  const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
+  const [editingCategoryName, setEditingCategoryName] = useState("");
   const [expandedProductId, setExpandedProductId] = useState<string | null>("p-fish-sticks");
   const [expandedPurchaseId, setExpandedPurchaseId] = useState<string | null>("purchase-2026-08-08");
   const [isPurchaseModalOpen, setIsPurchaseModalOpen] = useState(false);
   const [isProductModalOpen, setIsProductModalOpen] = useState(false);
   const [isPositionModalOpen, setIsPositionModalOpen] = useState(false);
+  const [editingPositionId, setEditingPositionId] = useState<string | null>(null);
   const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
+  const [orders, setOrders] = useState<OrderRecord[]>([]);
+  const [orderCounter, setOrderCounter] = useState(0);
+  const [lastOrderNumber, setLastOrderNumber] = useState<number | null>(null);
+  const [orderGuest, setOrderGuest] = useState<ApiUser | null>(null);
+  const [guestSearchQuery, setGuestSearchQuery] = useState("");
+  const [orderStatusTab, setOrderStatusTab] = useState<"active" | "completed" | "cancelled">("active");
+  const [orderDateFrom, setOrderDateFrom] = useState("");
+  const [orderDateTo, setOrderDateTo] = useState("");
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  const [writeOffs, setWriteOffs] = useState<WriteOffRecord[]>([]);
+  const [writeOffTarget, setWriteOffTarget] = useState<{ product: Product; batch: StockBatch } | null>(null);
+  const [writeOffAmount, setWriteOffAmount] = useState("");
+  const [writeOffReason, setWriteOffReason] = useState(WRITE_OFF_REASONS[0]);
+  const [writeOffCustomReason, setWriteOffCustomReason] = useState("");
+  const [writeOffFormError, setWriteOffFormError] = useState<string | null>(null);
+  const [shiftNotes, setShiftNotes] = useState("");
+  const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
+  const [orderEditItems, setOrderEditItems] = useState<OrderLineRecord[]>([]);
   const [orderItems, setOrderItems] = useState<Record<string, number>>({});
   const [searchQuery, setSearchQuery] = useState("");
   const [listQueries, setListQueries] = useState<Record<string, string>>({});
@@ -827,6 +972,86 @@ export default function Home() {
   });
   const [draftPosition, setDraftPosition] = useState<MenuPosition>(() => createBlankPosition());
   const isStorageReady = useRef(false);
+
+  const [guests, setGuests] = useState<ApiUser[]>([]);
+  const [guestsError, setGuestsError] = useState<string | null>(null);
+  const [isGuestModalOpen, setIsGuestModalOpen] = useState(false);
+  const [guestFormError, setGuestFormError] = useState<string | null>(null);
+  const [draftGuest, setDraftGuest] = useState({ name: "", phone: "", telegram: "", comment: "" });
+  const [editingGuestId, setEditingGuestId] = useState<string | null>(null);
+  const [isNavOpen, setIsNavOpen] = useState(false);
+
+  const loadGuests = () => {
+    apiGuests()
+      .then((list) => {
+        setGuests(list ?? []);
+        setGuestsError(null);
+      })
+      .catch(() => setGuestsError("Не удалось загрузить гостей"));
+  };
+
+  useEffect(() => {
+    if (authState === "authed" && apiUser && STAFF_ROLES.includes(apiUser.role)) {
+      loadGuests();
+    }
+  }, [authState, apiUser]);
+
+  const openCreateGuest = () => {
+    setEditingGuestId(null);
+    setDraftGuest({ name: "", phone: "", telegram: "", comment: "" });
+    setGuestFormError(null);
+    setIsGuestModalOpen(true);
+  };
+
+  const openEditGuest = (guest: ApiUser) => {
+    setEditingGuestId(guest.id);
+    setDraftGuest({
+      name: guest.name,
+      phone: guest.phone ?? "",
+      telegram: guest.telegram ?? "",
+      comment: guest.comment ?? "",
+    });
+    setGuestFormError(null);
+    setIsGuestModalOpen(true);
+  };
+
+  const submitGuest = async () => {
+    const name = draftGuest.name.trim();
+    if (!name) {
+      setGuestFormError("Укажите имя гостя");
+      return;
+    }
+    setGuestFormError(null);
+    const payload = {
+      name,
+      phone: draftGuest.phone.trim() || undefined,
+      telegram: draftGuest.telegram.trim() || undefined,
+      comment: draftGuest.comment.trim(),
+    };
+    const { data, error } = editingGuestId
+      ? await apiUpdateGuest(editingGuestId, payload)
+      : await apiCreateGuest(payload);
+    if (error || !data) {
+      setGuestFormError(error ?? "Не удалось сохранить гостя");
+      return;
+    }
+    setGuests((current) =>
+      editingGuestId ? current.map((g) => (g.id === data.id ? data : g)) : [data, ...current],
+    );
+    setDraftGuest({ name: "", phone: "", telegram: "", comment: "" });
+    setEditingGuestId(null);
+    setIsGuestModalOpen(false);
+  };
+
+  const deleteGuest = async (guest: ApiUser) => {
+    if (!window.confirm(`Удалить гостя «${guest.name}»?`)) return;
+    const { error } = await apiDeleteGuest(guest.id);
+    if (error) {
+      setGuestsError(error);
+      return;
+    }
+    setGuests((current) => current.filter((g) => g.id !== guest.id));
+  };
 
   useEffect(() => {
     window.queueMicrotask(() => {
@@ -849,6 +1074,20 @@ export default function Home() {
       if (savedMenu) setMenuPositions(JSON.parse(savedMenu) as MenuPosition[]);
       isStorageReady.current = true;
     });
+
+    // История заказов, списаний и счётчик номеров переживают сброс версии сид-данных — это не сиды, а факты
+    window.queueMicrotask(() => {
+      const savedOrders = window.localStorage.getItem(ordersStorageKey);
+      const savedCounter = window.localStorage.getItem(orderCounterStorageKey);
+      const savedWriteOffs = window.localStorage.getItem(writeOffsStorageKey);
+      const savedShiftNotes = window.localStorage.getItem(shiftNotesStorageKey);
+      const savedCategories = window.localStorage.getItem(menuCategoriesStorageKey);
+      if (savedOrders) setOrders(JSON.parse(savedOrders) as OrderRecord[]);
+      if (savedCounter) setOrderCounter(Number(savedCounter) || 0);
+      if (savedWriteOffs) setWriteOffs(JSON.parse(savedWriteOffs) as WriteOffRecord[]);
+      if (savedShiftNotes) setShiftNotes(savedShiftNotes);
+      if (savedCategories) setMenuCategories(JSON.parse(savedCategories) as MenuCategory[]);
+    });
   }, []);
 
   useEffect(() => {
@@ -857,6 +1096,62 @@ export default function Home() {
     window.localStorage.setItem(purchasesStorageKey, JSON.stringify(purchases));
     window.localStorage.setItem(menuStorageKey, JSON.stringify(menuPositions));
   }, [products, purchases, menuPositions]);
+
+  useEffect(() => {
+    if (!isStorageReady.current) return;
+    window.localStorage.setItem(menuCategoriesStorageKey, JSON.stringify(menuCategories));
+  }, [menuCategories]);
+
+  useEffect(() => {
+    if (!isStorageReady.current) return;
+    window.localStorage.setItem(ordersStorageKey, JSON.stringify(orders));
+    window.localStorage.setItem(orderCounterStorageKey, String(orderCounter));
+  }, [orders, orderCounter]);
+
+  useEffect(() => {
+    if (!isStorageReady.current) return;
+    window.localStorage.setItem(writeOffsStorageKey, JSON.stringify(writeOffs));
+  }, [writeOffs]);
+
+  useEffect(() => {
+    if (!isStorageReady.current) return;
+    window.localStorage.setItem(shiftNotesStorageKey, shiftNotes);
+  }, [shiftNotes]);
+
+  useEffect(() => {
+    if (lastOrderNumber === null) return;
+    const timer = setTimeout(() => setLastOrderNumber(null), 3000);
+    return () => clearTimeout(timer);
+  }, [lastOrderNumber]);
+
+  useEffect(() => {
+    const timer = setInterval(() => setNowTick(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Повар (/chef-display) меняет статусы заказов в том же localStorage —
+  // подхватываем это здесь, иначе таймер в «Заказах» не остановится, когда
+  // повар нажмёт «Готово», и отмену на кассе повар увидит с опозданием.
+  const lastOrdersJson = useRef("");
+  useEffect(() => {
+    const sync = () => {
+      if (!isStorageReady.current) return;
+      const raw = window.localStorage.getItem(ordersStorageKey);
+      if (!raw || raw === lastOrdersJson.current) return;
+      lastOrdersJson.current = raw;
+      try {
+        setOrders(JSON.parse(raw) as OrderRecord[]);
+      } catch {
+        // битые данные в сторедже — игнорируем
+      }
+    };
+    window.addEventListener("storage", sync);
+    const timer = setInterval(sync, 3000);
+    return () => {
+      window.removeEventListener("storage", sync);
+      clearInterval(timer);
+    };
+  }, []);
 
   const purchaseTotal = useMemo(
     () => parsedItems.reduce((sum, item) => sum + (item.totalPrice ?? 0), 0),
@@ -900,8 +1195,21 @@ export default function Home() {
     return positions.filter((position) => positionSearchText(position).includes(normalized));
   };
 
-  const listKey = activeSection === "positions" ? "positions" : `warehouse-${activeTab}`;
+  const listKey =
+    activeSection === "positions"
+      ? "positions"
+      : activeSection === "guests"
+        ? "guests"
+        : `warehouse-${activeTab}`;
   const listQuery = listQueries[listKey] ?? "";
+
+  const filteredGuests = useMemo(() => {
+    const normalized = listQuery.trim().toLowerCase();
+    if (!normalized) return guests;
+    return guests.filter((guest) =>
+      [guest.name, guest.phone ?? "", guest.telegram ?? ""].join(" ").toLowerCase().includes(normalized),
+    );
+  }, [guests, listQuery]);
   const setListQuery = (value: string) =>
     setListQueries((queries) => ({ ...queries, [listKey]: value }));
 
@@ -910,11 +1218,16 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [menuPositions, productTypes, searchQuery],
   );
-  const listMenuPositions = useMemo(
-    () => filterPositions(menuPositions, listQuery),
+  const listMenuPositions = useMemo(() => {
+    const byCategory =
+      activeCategoryId === "all"
+        ? menuPositions
+        : activeCategoryId === uncategorizedCategoryId
+          ? menuPositions.filter((p) => !p.categoryId)
+          : menuPositions.filter((p) => p.categoryId === activeCategoryId);
+    return filterPositions(byCategory, listQuery);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [menuPositions, productTypes, listQuery],
-  );
+  }, [menuPositions, productTypes, listQuery, activeCategoryId]);
   const listProducts = useMemo(() => {
     const query = listQuery.trim().toLowerCase();
     if (!query) return products;
@@ -923,6 +1236,16 @@ export default function Home() {
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [products, productTypes, listQuery]);
+
+  const getPurchaseBatches = (purchase: PurchaseRecord) =>
+    products
+      .flatMap((product) =>
+        product.batches
+          .filter((batch) => batch.receivedAt === purchase.receivedAt)
+          .map((batch) => ({ product, batch })),
+      )
+      .sort((a, b) => a.product.name.localeCompare(b.product.name, "ru"));
+
   const listPurchases = useMemo(() => {
     const query = listQuery.trim().toLowerCase();
     if (!query) return purchases;
@@ -930,10 +1253,92 @@ export default function Home() {
       const items = getPurchaseBatches(purchase)
         .map(({ product }) => product.name)
         .join(" ");
-      return `${purchase.receivedAt} ${items}`.toLowerCase().includes(query);
+      return `${purchase.receivedAt} ${items} ${shortId(purchase.id)}`.toLowerCase().includes(query);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [purchases, products, listQuery]);
+
+  const listWriteOffs = useMemo(() => {
+    const query = listQuery.trim().toLowerCase();
+    if (!query) return writeOffs;
+    return writeOffs.filter((entry) => `${entry.productName} ${entry.reason}`.toLowerCase().includes(query));
+  }, [writeOffs, listQuery]);
+
+  const todayKey = new Date().toISOString().slice(0, 10);
+  const todayOrders = useMemo(
+    () => orders.filter((order) => order.createdAt.slice(0, 10) === todayKey),
+    [orders, todayKey],
+  );
+  const todayWriteOffs = useMemo(
+    () => writeOffs.filter((entry) => entry.createdAt.slice(0, 10) === todayKey),
+    [writeOffs, todayKey],
+  );
+  const todayRevenue = todayOrders.reduce((sum, order) => sum + order.total, 0);
+
+  // Финансы: единое ядро маржинальности — сводит выручку заказов, расходы на
+  // закупки и потери от списаний по всем сущностям склада/касс в одну картину.
+  const activeOrders = useMemo(() => orders.filter((o) => o.status !== "cancelled"), [orders]);
+  const totalRevenue = useMemo(() => activeOrders.reduce((sum, o) => sum + o.total, 0), [activeOrders]);
+  const totalPurchasesCost = useMemo(() => purchases.reduce((sum, p) => sum + p.total, 0), [purchases]);
+  const totalWriteOffLoss = useMemo(() => writeOffs.reduce((sum, w) => sum + w.value, 0), [writeOffs]);
+  const netMargin = totalRevenue - totalPurchasesCost - totalWriteOffLoss;
+  const todayWriteOffLoss = todayWriteOffs.reduce((sum, w) => sum + w.value, 0);
+  const todayPurchasesCost = useMemo(
+    () => purchases.filter((p) => p.receivedAt === todayKey).reduce((sum, p) => sum + p.total, 0),
+    [purchases, todayKey],
+  );
+  const todayMargin = todayRevenue - todayPurchasesCost - todayWriteOffLoss;
+
+  // Статистика: детализация по позициям, дням выручки и причинам списаний —
+  // считается из тех же заказов/списаний, что и «Финансы», просто подробнее.
+  const topPositions = useMemo(() => {
+    const stats = new Map<string, { qty: number; revenue: number }>();
+    for (const order of activeOrders) {
+      for (const line of order.items) {
+        const entry = stats.get(line.name) ?? { qty: 0, revenue: 0 };
+        entry.qty += line.quantity;
+        entry.revenue += line.price * line.quantity;
+        stats.set(line.name, entry);
+      }
+    }
+    return [...stats.entries()].sort((a, b) => b[1].revenue - a[1].revenue).slice(0, 10);
+  }, [activeOrders]);
+
+  const revenueByDay = useMemo(() => {
+    const days: [string, number][] = Array.from({ length: 14 }, (_, i) => [daysAgo(13 - i), 0]);
+    const byDay = new Map(days);
+    for (const order of activeOrders) {
+      const key = order.createdAt.slice(0, 10);
+      if (byDay.has(key)) byDay.set(key, (byDay.get(key) ?? 0) + order.total);
+    }
+    return days.map(([day]) => [day, byDay.get(day) ?? 0] as [string, number]);
+  }, [activeOrders]);
+
+  const writeOffsByReason = useMemo(() => {
+    const stats = new Map<string, number>();
+    for (const entry of writeOffs) {
+      stats.set(entry.reason, (stats.get(entry.reason) ?? 0) + entry.value);
+    }
+    return [...stats.entries()].sort((a, b) => b[1] - a[1]);
+  }, [writeOffs]);
+
+  const guestSearchResults = useMemo(() => {
+    const query = guestSearchQuery.trim().toLowerCase();
+    if (!query) return [];
+    return guests
+      .filter((g) => [g.name, g.telegram ?? "", g.phone ?? ""].join(" ").toLowerCase().includes(query))
+      .slice(0, 6);
+  }, [guests, guestSearchQuery]);
+
+  const filteredOrders = useMemo(() => {
+    return orders.filter((order) => {
+      if (order.status !== orderStatusTab) return false;
+      const date = order.createdAt.slice(0, 10);
+      if (orderDateFrom && date < orderDateFrom) return false;
+      if (orderDateTo && date > orderDateTo) return false;
+      return true;
+    });
+  }, [orders, orderStatusTab, orderDateFrom, orderDateTo]);
 
   const updateParsedItem = (id: string, patch: Partial<ParsedItem>) => {
     setParsedItems((items) => items.map((item) => (item.id === id ? { ...item, ...patch } : item)));
@@ -1005,15 +1410,6 @@ export default function Home() {
     );
   };
 
-  const getPurchaseBatches = (purchase: PurchaseRecord) =>
-    products
-      .flatMap((product) =>
-        product.batches
-          .filter((batch) => batch.receivedAt === purchase.receivedAt)
-          .map((batch) => ({ product, batch })),
-      )
-      .sort((a, b) => a.product.name.localeCompare(b.product.name, "ru"));
-
   const changeOrderQuantity = (positionId: string, delta: number) => {
     setOrderItems((items) => {
       const nextQuantity = Math.max(0, (items[positionId] ?? 0) + delta);
@@ -1032,11 +1428,20 @@ export default function Home() {
       .filter((product) => product.typeId === typeId)
       .reduce((sum, product) => sum + getProductAvailableAmount(product), 0);
 
+  // Если у ингредиента есть альтернативы (например, картофель фри от другого
+  // поставщика) — берём первую, на которой хватает остатка, иначе основную.
+  const resolveIngredientTypeId = (ingredient: MenuIngredient) => {
+    const amount = parseNumber(ingredient.amount);
+    const candidates = [ingredient.typeId, ...(ingredient.altTypeIds ?? [])].filter(Boolean);
+    return candidates.find((id) => getTypeAvailableAmount(id) + epsilon >= amount) ?? ingredient.typeId;
+  };
+
   const collectRequirements = (ingredients: MenuIngredient[]) => {
     const required = new Map<string, number>();
     for (const ingredient of ingredients) {
       if (!ingredient.typeId) continue;
-      required.set(ingredient.typeId, (required.get(ingredient.typeId) ?? 0) + parseNumber(ingredient.amount));
+      const resolvedTypeId = resolveIngredientTypeId(ingredient);
+      required.set(resolvedTypeId, (required.get(resolvedTypeId) ?? 0) + parseNumber(ingredient.amount));
     }
     return required;
   };
@@ -1079,6 +1484,51 @@ export default function Home() {
     });
 
     return true;
+  };
+
+  const submitWriteOff = () => {
+    if (!writeOffTarget) return;
+    const { product, batch } = writeOffTarget;
+    const amount = parseNumber(writeOffAmount);
+    const reason = writeOffReason === "Другое" ? writeOffCustomReason.trim() : writeOffReason;
+    if (amount <= 0 || amount > batch.remainingAmount + epsilon) {
+      setWriteOffFormError(`Укажите количество от 0 до ${formatAmount(batch.remainingAmount)} ${product.stockUnit}`);
+      return;
+    }
+    if (!reason) {
+      setWriteOffFormError("Укажите причину списания");
+      return;
+    }
+
+    setProducts((items) =>
+      items.map((item) => {
+        if (item.id !== product.id) return item;
+        const batches = item.batches.map((b) =>
+          b.id === batch.id ? { ...b, remainingAmount: Math.max(0, b.remainingAmount - amount) } : b,
+        );
+        return { ...item, batches, amount: batches.reduce((sum, b) => sum + b.remainingAmount, 0) };
+      }),
+    );
+
+    const unitPrice = getBatchUnitPrice(product, batch) ?? 0;
+    setWriteOffs((prev) => [
+      {
+        id: crypto.randomUUID(),
+        createdAt: new Date().toISOString(),
+        productName: product.name,
+        batchId: batch.id,
+        amount,
+        unit: product.stockUnit,
+        reason,
+        value: Math.round(unitPrice * amount * 100) / 100,
+      },
+      ...prev,
+    ]);
+
+    setWriteOffTarget(null);
+    setWriteOffAmount("");
+    setWriteOffCustomReason("");
+    setWriteOffFormError(null);
   };
 
   const addProductBatch = (item: ParsedItem) => {
@@ -1218,22 +1668,107 @@ export default function Home() {
     }));
   };
 
+  const removeIngredientRow = (id: string) => {
+    setDraftPosition((position) => ({
+      ...position,
+      ingredients: position.ingredients.filter((ingredient) => ingredient.id !== id),
+    }));
+  };
+
+  const addIngredientAlt = (id: string) => {
+    setDraftPosition((position) => ({
+      ...position,
+      ingredients: position.ingredients.map((ingredient) =>
+        ingredient.id === id ? { ...ingredient, altTypeIds: [...(ingredient.altTypeIds ?? []), ""] } : ingredient,
+      ),
+    }));
+  };
+
+  const updateIngredientAlt = (id: string, altIndex: number, value: string) => {
+    setDraftPosition((position) => ({
+      ...position,
+      ingredients: position.ingredients.map((ingredient) =>
+        ingredient.id === id
+          ? { ...ingredient, altTypeIds: (ingredient.altTypeIds ?? []).map((a, i) => (i === altIndex ? value : a)) }
+          : ingredient,
+      ),
+    }));
+  };
+
+  const removeIngredientAlt = (id: string, altIndex: number) => {
+    setDraftPosition((position) => ({
+      ...position,
+      ingredients: position.ingredients.map((ingredient) =>
+        ingredient.id === id
+          ? { ...ingredient, altTypeIds: (ingredient.altTypeIds ?? []).filter((_, i) => i !== altIndex) }
+          : ingredient,
+      ),
+    }));
+  };
+
+  const openEditPosition = (position: MenuPosition) => {
+    setEditingPositionId(position.id);
+    setDraftPosition({ ...position, ingredients: position.ingredients.map((i) => ({ ...i })) });
+    setIsPositionModalOpen(true);
+  };
+
   const saveMenuPosition = () => {
-    const ingredients = draftPosition.ingredients.filter(
-      (ingredient) => ingredient.typeId && parseNumber(ingredient.amount) > 0,
-    );
+    const ingredients = draftPosition.ingredients
+      .filter((ingredient) => ingredient.typeId && parseNumber(ingredient.amount) > 0)
+      .map((ingredient) => ({
+        ...ingredient,
+        altTypeIds: (ingredient.altTypeIds ?? []).filter(Boolean),
+      }));
     if (!draftPosition.name.trim() || ingredients.length === 0) return;
 
-    setMenuPositions((items) => [
-      { ...draftPosition, id: crypto.randomUUID(), name: draftPosition.name.trim(), ingredients },
-      ...items,
-    ]);
+    if (editingPositionId) {
+      setMenuPositions((items) =>
+        items.map((item) =>
+          item.id === editingPositionId
+            ? { ...draftPosition, id: editingPositionId, name: draftPosition.name.trim(), ingredients }
+            : item,
+        ),
+      );
+    } else {
+      setMenuPositions((items) => [
+        { ...draftPosition, id: crypto.randomUUID(), name: draftPosition.name.trim(), ingredients },
+        ...items,
+      ]);
+    }
+    setEditingPositionId(null);
     setDraftPosition(createBlankPosition());
     setIsPositionModalOpen(false);
   };
 
-  const sellMenuPosition = (position: MenuPosition) => {
-    writeOffIngredients(position.ingredients);
+  const createCategory = () => {
+    const name = newCategoryName.trim();
+    if (!name) return;
+    setMenuCategories((prev) => [...prev, { id: crypto.randomUUID(), name }]);
+    setNewCategoryName("");
+  };
+
+  const startRenameCategory = (category: MenuCategory) => {
+    setEditingCategoryId(category.id);
+    setEditingCategoryName(category.name);
+  };
+
+  const saveRenameCategory = () => {
+    const name = editingCategoryName.trim();
+    if (!name || !editingCategoryId) {
+      setEditingCategoryId(null);
+      return;
+    }
+    setMenuCategories((prev) => prev.map((c) => (c.id === editingCategoryId ? { ...c, name } : c)));
+    setEditingCategoryId(null);
+  };
+
+  const deleteCategory = (category: MenuCategory) => {
+    if (!window.confirm(`Удалить раздел «${category.name}»? Позиции останутся, но без раздела.`)) return;
+    setMenuCategories((prev) => prev.filter((c) => c.id !== category.id));
+    setMenuPositions((prev) =>
+      prev.map((position) => (position.categoryId === category.id ? { ...position, categoryId: null } : position)),
+    );
+    if (activeCategoryId === category.id) setActiveCategoryId("all");
   };
 
   const canSellMenuPosition = (position: MenuPosition) => hasEnoughStock(position.ingredients);
@@ -1252,13 +1787,74 @@ export default function Home() {
   const canAddToOrder = (position: MenuPosition) =>
     hasEnoughStock([...orderIngredients, ...position.ingredients]);
 
-  const completeOrder = () => {
+  const completeOrder = (route: "kitchen" | "self") => {
     if (orderLines.length === 0 || !canCompleteOrder()) return;
 
     if (!writeOffIngredients(orderIngredients)) return;
 
+    const number = orderCounter + 1;
+    const order: OrderRecord = {
+      id: crypto.randomUUID(),
+      number,
+      createdAt: new Date().toISOString(),
+      items: orderLines.map((line) => ({
+        name: line.position.name,
+        quantity: line.quantity,
+        price: parseNumber(line.position.price),
+        comment: line.position.comment || undefined,
+        ingredients: line.position.ingredients.map((ingredient) => {
+          const type = getProductType(resolveIngredientTypeId(ingredient));
+          const amount = formatAmount(parseNumber(ingredient.amount) * line.quantity);
+          return { name: type?.name ?? "Ингредиент", amount: `${amount} ${type?.unit ?? ""}`.trim() };
+        }),
+      })),
+      total: orderTotal,
+      status: "active",
+      completedAt: null,
+      kitchenStatus: "new",
+      route,
+      guestId: orderGuest?.id ?? null,
+      guestName: orderGuest?.name ?? null,
+    };
+    setOrders((prev) => [order, ...prev]);
+    setOrderCounter(number);
+    setLastOrderNumber(number);
     setOrderItems({});
+    setOrderGuest(null);
+    setGuestSearchQuery("");
     setIsOrderModalOpen(false);
+  };
+
+  const cancelOrder = (order: OrderRecord) => {
+    if (!window.confirm(`Отменить заказ №${order.number}?`)) return;
+    setOrders((prev) => prev.map((o) => (o.id === order.id ? { ...o, status: "cancelled" } : o)));
+  };
+
+  const markOrderDone = (order: OrderRecord) => {
+    setOrders((prev) =>
+      prev.map((o) => (o.id === order.id ? { ...o, status: "completed", completedAt: new Date().toISOString() } : o)),
+    );
+  };
+
+  const openEditOrder = (order: OrderRecord) => {
+    setEditingOrderId(order.id);
+    setOrderEditItems(order.items.map((item) => ({ ...item })));
+  };
+
+  const updateOrderEditQuantity = (index: number, quantity: number) => {
+    setOrderEditItems((items) =>
+      items.map((item, i) => (i === index ? { ...item, quantity: Math.max(0, quantity) } : item)).filter((item) => item.quantity > 0),
+    );
+  };
+
+  const saveOrderEdit = () => {
+    if (!editingOrderId) return;
+    const total = orderEditItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
+    setOrders((prev) =>
+      prev.map((o) => (o.id === editingOrderId ? { ...o, items: orderEditItems, total } : o)),
+    );
+    setEditingOrderId(null);
+    setOrderEditItems([]);
   };
 
   if (authState === "loading") {
@@ -1282,14 +1878,14 @@ export default function Home() {
           <div className="mt-6 flex justify-center gap-3">
             <a
               href="/"
-              className="inline-flex items-center gap-2 rounded-md border border-white/8 bg-[#1b1c20] px-4 py-2 text-sm text-zinc-300 transition hover:text-zinc-100"
+              className="inline-flex items-center gap-2 rounded-xl border border-white/8 bg-[#1b1c20] px-4 py-2 text-sm text-zinc-300 transition hover:text-zinc-100"
             >
               К расписанию игр
             </a>
             {authState === "guest" && (
               <a
                 href="/login"
-                className="inline-flex items-center gap-2 rounded-md bg-amber-400 px-4 py-2 text-sm font-medium text-zinc-950 transition hover:bg-amber-300"
+                className="inline-flex items-center gap-2 rounded-xl bg-amber-400 px-4 py-2 text-sm font-medium text-zinc-950 transition hover:bg-amber-300"
               >
                 <LogIn className="h-4 w-4" />
                 Войти
@@ -1302,89 +1898,445 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen bg-[#111214] text-zinc-100">
-      <div className="flex min-h-screen">
-        <aside className="hidden w-72 shrink-0 border-r border-white/8 bg-[#17181b] px-4 py-5 lg:block">
-          <div className="mb-8 flex items-center gap-3 px-2">
-            <div className="grid size-11 place-items-center rounded-md bg-zinc-100 text-zinc-950">
-              <Wine className="size-5" />
+    <main className="h-screen overflow-hidden bg-[#111214] text-zinc-100">
+      <div className="flex h-full">
+        <aside className="hidden w-72 shrink-0 flex-col border-r border-white/8 bg-[#17181b] lg:flex">
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5">
+            <div className="mb-8 flex items-center gap-3 px-2">
+              <Image src="/logo.png" alt="Хмельной лис" width={53} height={53} className="size-[53px] shrink-0 rounded-xl object-cover" />
+              <span className="tavern-font truncate text-xl font-bold text-amber-200">Хмельной лис</span>
             </div>
-            <div>
-              <p className="text-sm text-zinc-500">CRM</p>
-              <h1 className="text-xl font-semibold">Хитрый лис</h1>
-            </div>
+
+            <nav className="space-y-1">
+              {navItems.map((item) => (
+                <button
+                  key={item.id}
+                  className={`flex h-11 w-full items-center gap-3 rounded-xl px-3 text-sm transition ${
+                    item.id === activeSection
+                      ? "bg-zinc-100 text-zinc-950"
+                      : item.enabled
+                        ? "text-zinc-300 hover:bg-white/6"
+                        : "text-zinc-600 opacity-60"
+                  }`}
+                  disabled={!item.enabled}
+                  type="button"
+                  onClick={() => item.enabled && setActiveSection(item.id as ActiveSection)}
+                  title={item.label}
+                >
+                  <item.icon className="size-4" />
+                  <span>{item.label}</span>
+                </button>
+              ))}
+            </nav>
           </div>
 
-          <button
-            className="mb-4 inline-flex h-11 w-full items-center justify-center gap-2 rounded-md bg-violet-500 px-4 text-sm font-semibold text-white shadow-lg shadow-violet-950/30 hover:bg-violet-400"
-            type="button"
-            onClick={() => setIsOrderModalOpen(true)}
-          >
-            <Plus className="size-4" />
-            <span>Новый заказ</span>
-          </button>
-
-          <nav className="space-y-1">
-            {navItems.map((item) => (
-              <button
-                key={item.id}
-                className={`flex h-11 w-full items-center gap-3 rounded-md px-3 text-sm transition ${
-                  item.id === activeSection
-                    ? "bg-zinc-100 text-zinc-950"
-                    : item.enabled
-                      ? "text-zinc-300 hover:bg-white/6"
-                      : "text-zinc-600 opacity-60"
-                }`}
-                disabled={!item.enabled}
-                type="button"
-                onClick={() => item.enabled && setActiveSection(item.id as ActiveSection)}
-                title={item.label}
-              >
-                <item.icon className="size-4" />
-                <span>{item.label}</span>
-              </button>
-            ))}
-          </nav>
+          <div className="shrink-0 border-t border-white/8 p-3">
+            <div className="mb-2 flex items-center gap-2 rounded-xl border border-white/8 bg-[#1b1c20] px-3 py-2 text-xs text-zinc-300">
+              <User className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
+              <span className="truncate">{apiUser ? `${apiUser.name} · ${roleLabel(currentRole)}` : "…"}</span>
+            </div>
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="flex h-10 w-full items-center justify-center gap-1.5 rounded-xl border border-white/8 text-sm text-zinc-400 transition hover:bg-[#1b1c20] hover:text-zinc-200"
+            >
+              <LogOut className="h-4 w-4" />
+              Выйти
+            </button>
+          </div>
         </aside>
 
-        <section className="flex min-w-0 flex-1 flex-col">
-          <header className="sticky top-0 z-10 border-b border-white/8 bg-[#111214]/92 px-4 py-3 backdrop-blur md:px-6">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">
-                  {activeSection === "positions" ? "Позиции" : "Склад"}
-                </p>
-                <h2 className="text-2xl font-semibold">Хитрый лис</h2>
+        {isNavOpen && (
+          <div className="fixed inset-0 z-40 lg:hidden">
+            <button
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+              type="button"
+              aria-label="Закрыть меню"
+              onClick={() => setIsNavOpen(false)}
+            />
+            <nav className="absolute inset-y-0 left-0 flex w-72 flex-col border-r border-white/8 bg-[#17181b]">
+              <div className="min-h-0 flex-1 overflow-y-auto p-4 pt-5">
+                <div className="mb-6 flex items-center justify-between px-2">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <Image src="/logo.png" alt="Хмельной лис" width={53} height={53} className="size-[53px] shrink-0 rounded-xl object-cover" />
+                    <span className="tavern-font truncate text-xl font-bold text-amber-200">Хмельной лис</span>
+                  </div>
+                  <button
+                    className="grid size-9 shrink-0 place-items-center rounded-xl border border-white/8 text-zinc-400 hover:bg-[#25272c]"
+                    type="button"
+                    title="Закрыть"
+                    onClick={() => setIsNavOpen(false)}
+                  >
+                    <X className="size-4" />
+                  </button>
+                </div>
+                <div className="space-y-1">
+                  {navItems.map((item) => (
+                    <button
+                      key={item.id}
+                      className={`flex h-11 w-full items-center gap-3 rounded-xl px-3 text-sm transition ${
+                        item.id === activeSection
+                          ? "bg-zinc-100 text-zinc-950"
+                          : item.enabled
+                            ? "text-zinc-300 hover:bg-white/6"
+                            : "text-zinc-600 opacity-60"
+                      }`}
+                      disabled={!item.enabled}
+                      type="button"
+                      onClick={() => {
+                        if (!item.enabled) return;
+                        setActiveSection(item.id as ActiveSection);
+                        setIsNavOpen(false);
+                      }}
+                      title={item.label}
+                    >
+                      <item.icon className="size-4" />
+                      <span>{item.label}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
 
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="flex items-center gap-2 rounded-full border border-white/8 bg-[#1b1c20] px-3 py-1.5 text-xs text-zinc-300">
-                  <User className="h-3.5 w-3.5 text-zinc-500" />
-                  {apiUser ? `${apiUser.name} · ${roleLabel(currentRole)}` : "…"}
-                </span>
+              <div className="shrink-0 border-t border-white/8 p-3">
+                <div className="mb-2 flex items-center gap-2 rounded-xl border border-white/8 bg-[#111214] px-3 py-2 text-xs text-zinc-300">
+                  <User className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
+                  <span className="truncate">{apiUser ? `${apiUser.name} · ${roleLabel(currentRole)}` : "…"}</span>
+                </div>
                 <button
                   type="button"
                   onClick={handleLogout}
-                  className="flex items-center gap-1.5 rounded-full border border-white/8 bg-[#1b1c20] px-3 py-1.5 text-xs text-zinc-400 transition hover:text-zinc-200"
+                  className="flex h-10 w-full items-center justify-center gap-1.5 rounded-xl border border-white/8 text-sm text-zinc-400 transition hover:bg-[#111214] hover:text-zinc-200"
                 >
-                  <LogOut className="h-3.5 w-3.5" />
+                  <LogOut className="h-4 w-4" />
                   Выйти
+                </button>
+              </div>
+            </nav>
+          </div>
+        )}
+
+        <section className="flex min-w-0 flex-1 flex-col overflow-hidden">
+          <header className="shrink-0 border-b border-white/8 bg-[#111214] px-4 py-3 md:px-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <button
+                  className="grid size-10 shrink-0 place-items-center rounded-xl border border-white/8 text-zinc-300 hover:bg-[#1b1c20] lg:hidden"
+                  type="button"
+                  title="Меню"
+                  onClick={() => setIsNavOpen(true)}
+                >
+                  <Menu className="size-4" />
+                </button>
+                <h2 className="text-2xl font-semibold">{SECTION_TITLES[activeSection] ?? "Склад"}</h2>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  className="inline-flex h-10 items-center gap-2 rounded-xl bg-violet-500 px-3 text-sm font-semibold text-white shadow-lg shadow-violet-950/30 hover:bg-violet-400 sm:px-4"
+                  type="button"
+                  onClick={() => setIsOrderModalOpen(true)}
+                >
+                  <Plus className="size-4" />
+                  <span className="hidden sm:inline">Новый заказ</span>
                 </button>
               </div>
             </div>
           </header>
 
-          <div className="space-y-4 p-4 md:p-6">
+          <div
+            className={`min-h-0 flex-1 flex-col overflow-hidden p-4 md:p-6 ${
+              activeSection === "tables" ? "flex" : "hidden"
+            }`}
+          >
+            <TablesSection guests={guests} />
+          </div>
+
+          <div
+            className={`flex-1 space-y-4 overflow-y-auto p-4 md:p-6 ${activeSection === "tables" ? "hidden" : ""}`}
+          >
+            {activeSection === "orders" && (
+              <section className="rounded-xl border border-white/8 bg-[#1b1c20]">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/8 p-4">
+                  <div className="flex rounded-full border border-white/8 bg-[#111214] p-1">
+                    {(
+                      [
+                        ["active", "Активные"],
+                        ["completed", "Выполненные"],
+                        ["cancelled", "Отменённые"],
+                      ] as const
+                    ).map(([id, label]) => (
+                      <button
+                        key={id}
+                        className={`h-9 rounded-full px-4 text-sm ${
+                          orderStatusTab === id ? "bg-zinc-100 text-zinc-950" : "text-zinc-400"
+                        }`}
+                        type="button"
+                        onClick={() => setOrderStatusTab(id)}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 text-sm">
+                    <input
+                      type="date"
+                      className="h-9 rounded-xl border border-white/8 bg-[#111214] px-2 text-sm text-zinc-300 outline-none focus:border-zinc-400"
+                      value={orderDateFrom}
+                      onChange={(event) => setOrderDateFrom(event.target.value)}
+                    />
+                    <span className="text-zinc-500">—</span>
+                    <input
+                      type="date"
+                      className="h-9 rounded-xl border border-white/8 bg-[#111214] px-2 text-sm text-zinc-300 outline-none focus:border-zinc-400"
+                      value={orderDateTo}
+                      onChange={(event) => setOrderDateTo(event.target.value)}
+                    />
+                    {(orderDateFrom || orderDateTo) && (
+                      <button
+                        className="text-xs text-zinc-500 hover:text-zinc-300"
+                        type="button"
+                        onClick={() => {
+                          setOrderDateFrom("");
+                          setOrderDateTo("");
+                        }}
+                      >
+                        Сбросить
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <div className="divide-y divide-white/8">
+                  {filteredOrders.length === 0 ? (
+                    <Empty icon={ClipboardList} />
+                  ) : (
+                    filteredOrders.map((order) => {
+                      const elapsedMs =
+                        (order.status === "active" ? nowTick : new Date(order.completedAt ?? order.createdAt).getTime()) -
+                        new Date(order.createdAt).getTime();
+                      return (
+                        <div key={order.id} className="flex items-center gap-3 px-4 py-3 text-sm">
+                          {order.status === "active" && (
+                            <button
+                              className="grid size-8 shrink-0 place-items-center rounded-lg border border-white/8 hover:bg-[#25272c]"
+                              type="button"
+                              title="Заказ выполнен"
+                              onClick={() => markOrderDone(order)}
+                            >
+                              <Check className="size-4 text-zinc-500" />
+                            </button>
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <p className="font-medium">
+                              Заказ №{order.number}
+                              <span className="ml-2 text-xs font-normal text-zinc-500">
+                                {new Date(order.createdAt).toLocaleString("ru-RU")}
+                              </span>
+                              {order.guestName && (
+                                <span className="ml-2 rounded-full bg-white/8 px-2 py-0.5 text-[10px] text-zinc-300">
+                                  {order.guestName}
+                                </span>
+                              )}
+                              <span
+                                className={`ml-2 rounded-full px-2 py-0.5 text-[10px] ${
+                                  order.route === "self"
+                                    ? "bg-white/8 text-zinc-400"
+                                    : "bg-amber-500/15 text-amber-300"
+                                }`}
+                              >
+                                {order.route === "self" ? "самостоятельно" : "кухня"}
+                              </span>
+                            </p>
+                            <p className="truncate text-xs text-zinc-500">
+                              {order.items.map((line) => `${line.name} ×${line.quantity}`).join(", ")}
+                            </p>
+                          </div>
+                          <span
+                            className={`shrink-0 text-xs ${order.status === "active" ? "text-amber-300" : "text-zinc-500"}`}
+                          >
+                            {formatDuration(elapsedMs)}
+                          </span>
+                          <span className="shrink-0 font-semibold">{formatMoney(order.total)}</span>
+                          <button
+                            className="grid size-8 shrink-0 place-items-center rounded-xl border border-white/8 text-zinc-400 hover:bg-[#25272c]"
+                            type="button"
+                            title="Редактировать"
+                            onClick={() => openEditOrder(order)}
+                          >
+                            <Pencil className="size-4" />
+                          </button>
+                          {order.status !== "cancelled" && (
+                            <button
+                              className="grid size-8 shrink-0 place-items-center rounded-xl border border-white/8 text-zinc-400 hover:bg-[#25272c] hover:text-rose-400"
+                              type="button"
+                              title="Отменить заказ"
+                              onClick={() => cancelOrder(order)}
+                            >
+                              <X className="size-4" />
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </section>
+            )}
+
+            {activeSection === "shift" && (
+              <div className="space-y-4">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <button
+                    className="flex h-32 flex-col items-center justify-center gap-2 rounded-2xl bg-violet-500 text-xl font-bold text-white shadow-lg shadow-violet-950/30 hover:bg-violet-400"
+                    type="button"
+                    onClick={() => setIsOrderModalOpen(true)}
+                  >
+                    <Plus className="size-8" />
+                    Новый заказ
+                  </button>
+                  <button
+                    className="flex h-32 flex-col items-center justify-center gap-2 rounded-2xl bg-zinc-100 text-xl font-bold text-zinc-950 shadow-lg shadow-black/25 hover:bg-white"
+                    type="button"
+                    onClick={openCreateGuest}
+                  >
+                    <UsersRound className="size-8" />
+                    Новый клиент
+                  </button>
+                </div>
+              <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
+                <section className="rounded-xl border border-white/8 bg-[#1b1c20] p-4">
+                  <h3 className="mb-3 font-semibold">Сводка на сегодня</h3>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Metric label="Заказов" value={todayOrders.length} />
+                    <Metric label="Выручка" value={Math.round(todayRevenue)} />
+                    <Metric label="Гостей всего" value={guests.length} />
+                    <Metric label="Списаний" value={todayWriteOffs.length} />
+                  </div>
+                </section>
+                <section className="flex flex-col rounded-xl border border-white/8 bg-[#1b1c20] p-4">
+                  <h3 className="mb-3 font-semibold">Заметки смены</h3>
+                  <textarea
+                    className="min-h-40 flex-1 resize-none rounded-xl border border-white/8 bg-[#111214] p-3 text-sm outline-none focus:border-zinc-400"
+                    placeholder="Что важно передать следующей смене: остатки, проблемы гостей, форс-мажоры…"
+                    value={shiftNotes}
+                    onChange={(event) => setShiftNotes(event.target.value)}
+                  />
+                </section>
+              </div>
+              </div>
+            )}
+
+            {activeSection === "finance" && (
+              <div className="space-y-4">
+                <section className="rounded-xl border border-white/8 bg-[#1b1c20] p-4">
+                  <h3 className="mb-3 font-semibold">Сегодня</h3>
+                  <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+                    <Metric label="Выручка" value={Math.round(todayRevenue)} />
+                    <Metric label="Закупки" value={Math.round(todayPurchasesCost)} />
+                    <Metric label="Списано, ₽" value={Math.round(todayWriteOffLoss)} />
+                    <Metric label="Маржа" value={Math.round(todayMargin)} />
+                  </div>
+                </section>
+                <section className="rounded-xl border border-white/8 bg-[#1b1c20] p-4">
+                  <h3 className="mb-3 font-semibold">За всё время</h3>
+                  <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+                    <Metric label="Выручка" value={Math.round(totalRevenue)} />
+                    <Metric label="Закупки" value={Math.round(totalPurchasesCost)} />
+                    <Metric label="Списано, ₽" value={Math.round(totalWriteOffLoss)} />
+                    <Metric label="Маржа" value={Math.round(netMargin)} />
+                  </div>
+                  <p className="mt-3 text-xs text-zinc-500">
+                    Маржа = выручка активных заказов − сумма закупок − стоимость списаний. Единый расчёт по всем
+                    сущностям: заказы, склад, списания.
+                  </p>
+                </section>
+              </div>
+            )}
+
+            {activeSection === "events" && <EventsSection />}
+
+            {activeSection === "stats" && (
+              <div className="space-y-4">
+                <section className="rounded-xl border border-white/8 bg-[#1b1c20] p-4">
+                  <h3 className="mb-3 font-semibold">Топ позиций по продажам</h3>
+                  {topPositions.length === 0 ? (
+                    <p className="text-sm text-zinc-500">Пока нет проданных заказов</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {topPositions.map(([name, stat]) => (
+                        <div key={name} className="flex items-center justify-between gap-3 rounded-xl border border-white/8 bg-[#111214] p-3 text-sm">
+                          <span className="min-w-0 truncate">{name}</span>
+                          <span className="shrink-0 text-zinc-400">
+                            {stat.qty} шт · {formatMoney(stat.revenue)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </section>
+                <section className="rounded-xl border border-white/8 bg-[#1b1c20] p-4">
+                  <h3 className="mb-3 font-semibold">Выручка по дням (последние 14 дней)</h3>
+                  {revenueByDay.every(([, v]) => v === 0) ? (
+                    <p className="text-sm text-zinc-500">Пока нет данных</p>
+                  ) : (
+                    <div className="flex items-end gap-1.5" style={{ height: 140 }}>
+                      {revenueByDay.map(([day, value]) => {
+                        const max = Math.max(...revenueByDay.map(([, v]) => v), 1);
+                        return (
+                          <div key={day} className="flex flex-1 flex-col items-center gap-1">
+                            <div
+                              className="w-full rounded-t bg-violet-500/70"
+                              style={{ height: `${Math.max(2, (value / max) * 100)}px` }}
+                              title={`${day}: ${formatMoney(value)}`}
+                            />
+                            <span className="text-[9px] text-zinc-600">{day.slice(8, 10)}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </section>
+                <section className="grid gap-4 sm:grid-cols-2">
+                  <div className="rounded-xl border border-white/8 bg-[#1b1c20] p-4">
+                    <h3 className="mb-3 font-semibold">Списания по причинам</h3>
+                    {writeOffsByReason.length === 0 ? (
+                      <p className="text-sm text-zinc-500">Списаний не было</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {writeOffsByReason.map(([reason, value]) => (
+                          <div key={reason} className="flex items-center justify-between text-sm">
+                            <span className="text-zinc-400">{reason}</span>
+                            <span className="text-rose-400">{formatMoney(value)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div className="rounded-xl border border-white/8 bg-[#1b1c20] p-4">
+                    <h3 className="mb-3 font-semibold">Заказы</h3>
+                    <div className="grid grid-cols-2 gap-3">
+                      <Metric label="Активных" value={orders.filter((o) => o.status === "active").length} />
+                      <Metric label="Выполнено" value={orders.filter((o) => o.status === "completed").length} />
+                      <Metric label="Отменено" value={orders.filter((o) => o.status === "cancelled").length} />
+                      <Metric label="Средний чек" value={Math.round(totalRevenue / Math.max(1, activeOrders.length))} />
+                    </div>
+                  </div>
+                </section>
+              </div>
+            )}
+
+            {activeSection !== "tables" && activeSection !== "orders" && activeSection !== "shift" && activeSection !== "finance" && activeSection !== "events" && activeSection !== "stats" && (
+            <>
             <section className="flex flex-wrap items-center justify-between gap-3">
               {activeSection === "warehouse" ? (
-                <div className="flex rounded-md border border-white/8 bg-[#1b1c20] p-1">
+                <div className="flex rounded-full border border-white/8 bg-[#1b1c20] p-1">
                   {[
                     ["purchases", "Закупки"],
                     ["products", "Товары"],
+                    ["write-offs", "Списания"],
                   ].map(([id, label]) => (
                     <button
                       key={id}
-                      className={`h-9 rounded px-4 text-sm ${
+                      className={`h-9 rounded-full px-4 text-sm ${
                         activeTab === id ? "bg-zinc-100 text-zinc-950" : "text-zinc-400"
                       }`}
                       type="button"
@@ -1394,6 +2346,52 @@ export default function Home() {
                     </button>
                   ))}
                 </div>
+              ) : activeSection === "positions" ? (
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    className={`h-9 rounded-full border px-4 text-sm ${
+                      activeCategoryId === "all"
+                        ? "border-zinc-100 bg-zinc-100 text-zinc-950"
+                        : "border-white/8 text-zinc-400 hover:bg-[#1b1c20]"
+                    }`}
+                    type="button"
+                    onClick={() => setActiveCategoryId("all")}
+                  >
+                    Все
+                  </button>
+                  {menuCategories.map((category) => (
+                    <button
+                      key={category.id}
+                      className={`h-9 rounded-full border px-4 text-sm ${
+                        activeCategoryId === category.id
+                          ? "border-zinc-100 bg-zinc-100 text-zinc-950"
+                          : "border-white/8 text-zinc-400 hover:bg-[#1b1c20]"
+                      }`}
+                      type="button"
+                      onClick={() => setActiveCategoryId(category.id)}
+                    >
+                      {category.name}
+                    </button>
+                  ))}
+                  <button
+                    className={`h-9 rounded-full border px-4 text-sm ${
+                      activeCategoryId === uncategorizedCategoryId
+                        ? "border-zinc-100 bg-zinc-100 text-zinc-950"
+                        : "border-white/8 text-zinc-400 hover:bg-[#1b1c20]"
+                    }`}
+                    type="button"
+                    onClick={() => setActiveCategoryId(uncategorizedCategoryId)}
+                  >
+                    Без раздела
+                  </button>
+                  <button
+                    className="h-9 rounded-full border border-dashed border-white/15 px-4 text-sm text-zinc-500 hover:bg-[#1b1c20]"
+                    type="button"
+                    onClick={() => setIsCategoryModalOpen(true)}
+                  >
+                    Разделы…
+                  </button>
+                </div>
               ) : (
                 <div />
               )}
@@ -1401,17 +2399,30 @@ export default function Home() {
               <div className="flex flex-wrap gap-2">
                 {activeSection === "positions" ? (
                   <button
-                    className="inline-flex h-10 items-center gap-2 rounded-md bg-zinc-100 px-4 text-sm font-medium text-zinc-950 hover:bg-white"
+                    className="inline-flex h-10 items-center gap-2 rounded-xl bg-zinc-100 px-4 text-sm font-medium text-zinc-950 shadow-md shadow-black/25 hover:bg-white"
                     type="button"
-                    onClick={() => setIsPositionModalOpen(true)}
+                    onClick={() => {
+                      setEditingPositionId(null);
+                      setDraftPosition(createBlankPosition());
+                      setIsPositionModalOpen(true);
+                    }}
                   >
                     <Plus className="size-4" />
                     <span>Добавить позицию</span>
                   </button>
+                ) : activeSection === "guests" ? (
+                  <button
+                    className="inline-flex h-10 items-center gap-2 rounded-xl bg-zinc-100 px-4 text-sm font-medium text-zinc-950 shadow-md shadow-black/25 hover:bg-white"
+                    type="button"
+                    onClick={openCreateGuest}
+                  >
+                    <Plus className="size-4" />
+                    <span>Добавить гостя</span>
+                  </button>
                 ) : (
                   <>
                     <button
-                      className="inline-flex h-10 items-center gap-2 rounded-md bg-zinc-100 px-4 text-sm font-medium text-zinc-950 hover:bg-white"
+                      className="inline-flex h-10 items-center gap-2 rounded-xl bg-zinc-100 px-4 text-sm font-medium text-zinc-950 shadow-md shadow-black/25 hover:bg-white"
                       type="button"
                       onClick={() => setIsPurchaseModalOpen(true)}
                     >
@@ -1419,7 +2430,7 @@ export default function Home() {
                       <span>Добавить закупку</span>
                     </button>
                     <button
-                      className="inline-flex h-10 items-center gap-2 rounded-md border border-white/8 px-4 text-sm text-zinc-300 hover:bg-[#25272c]"
+                      className="inline-flex h-10 items-center gap-2 rounded-xl border border-white/8 px-4 text-sm text-zinc-300 hover:bg-[#25272c]"
                       type="button"
                       onClick={() => setIsProductModalOpen(true)}
                     >
@@ -1431,28 +2442,44 @@ export default function Home() {
               </div>
             </section>
 
-            <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-              <Metric label="Позиции" value={menuPositions.length} />
-              <Metric label="Товары" value={products.length} />
-              <Metric label="Остаток" value={Math.round(totalUnits * 100) / 100} />
-              <Metric label="Истекают" value={expiringCount} />
-              <Metric label="Просрочено" value={expiredCount} />
-            </section>
+            {activeSection === "guests" && (
+              <section className="grid grid-cols-2 gap-3 xl:grid-cols-3">
+                <Metric label="Гостей" value={guests.length} />
+                <Metric label="С телефоном" value={guests.filter((g) => !!g.phone).length} />
+                <Metric label="С телеграмом" value={guests.filter((g) => !!g.telegram).length} />
+              </section>
+            )}
+
+            {activeSection === "warehouse" && (
+              <section className="grid grid-cols-2 gap-3 xl:grid-cols-5">
+                <Metric label="Позиции" value={menuPositions.length} />
+                <Metric label="Товары" value={products.length} />
+                <Metric label="Остаток" value={Math.round(totalUnits * 100) / 100} />
+                <Metric label="Истекают" value={expiringCount} />
+                <Metric label="Просрочено" value={expiredCount} />
+              </section>
+            )}
 
             <ListSearch
               placeholder={
                 activeSection === "positions"
                   ? "Поиск по позициям и ингредиентам"
-                  : activeTab === "purchases"
-                    ? "Поиск по закупкам: дата или товар"
-                    : "Поиск по товарам и типам"
+                  : activeSection === "guests"
+                    ? "Имя, телефон, телеграм"
+                    : activeTab === "purchases"
+                      ? "Поиск по закупкам: дата или товар"
+                      : activeTab === "write-offs"
+                        ? "Поиск по списаниям: товар или причина"
+                        : "Поиск по товарам и типам"
               }
               value={listQuery}
               onChange={setListQuery}
             />
+            </>
+            )}
 
             {activeSection === "positions" && (
-              <section className="rounded-md border border-white/8 bg-[#1b1c20]">
+              <section className="rounded-xl border border-white/8 bg-[#1b1c20]">
                 <div className="border-b border-white/8 p-4">
                   <h3 className="font-semibold">Позиции</h3>
                 </div>
@@ -1480,7 +2507,7 @@ export default function Home() {
                             {formatMoney(parseNumber(position.price))}
                           </span>
                           <button
-                            className="grid size-8 shrink-0 place-items-center rounded-md border border-white/8 text-zinc-400 hover:bg-[#25272c]"
+                            className="grid size-8 shrink-0 place-items-center rounded-xl border border-white/8 text-zinc-400 hover:bg-[#25272c]"
                             type="button"
                             title="Состав"
                             onClick={() => setInfoPositionId(position.id)}
@@ -1488,12 +2515,12 @@ export default function Home() {
                             <Info className="size-4" />
                           </button>
                           <button
-                            className="h-8 shrink-0 rounded-md bg-zinc-100 px-3 text-xs font-medium text-zinc-950 hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
-                            disabled={!available}
+                            className="grid size-8 shrink-0 place-items-center rounded-xl border border-white/8 text-zinc-400 hover:bg-[#25272c]"
                             type="button"
-                            onClick={() => sellMenuPosition(position)}
+                            title="Редактировать"
+                            onClick={() => openEditPosition(position)}
                           >
-                            Продать
+                            <Pencil className="size-4" />
                           </button>
                         </div>
                       );
@@ -1504,7 +2531,7 @@ export default function Home() {
             )}
 
             {activeSection === "warehouse" && activeTab === "purchases" && (
-              <section className="rounded-md border border-white/8 bg-[#1b1c20]">
+              <section className="rounded-xl border border-white/8 bg-[#1b1c20]">
                 <div className="border-b border-white/8 p-4">
                   <h3 className="font-semibold">Закупки</h3>
                 </div>
@@ -1521,7 +2548,12 @@ export default function Home() {
                             setExpandedPurchaseId(expandedPurchaseId === purchase.id ? null : purchase.id)
                           }
                         >
-                          <span className="font-medium">{purchase.receivedAt}</span>
+                          <span className="font-medium">
+                            {purchase.receivedAt}
+                            <span className="block text-[10px] font-normal uppercase tracking-wide text-zinc-500">
+                              #{shortId(purchase.id)}
+                            </span>
+                          </span>
                           <span className="text-sm text-zinc-500">{purchase.itemCount} позиций</span>
                           <span className="font-semibold">{formatMoney(purchase.total)}</span>
                           <ChevronDown
@@ -1547,7 +2579,7 @@ export default function Home() {
                                 return (
                                   <div
                                     key={batch.id}
-                                    className="grid gap-2 rounded-md border border-white/8 bg-[#111214] p-3 text-sm md:grid-cols-[minmax(0,1fr)_130px_120px_130px_140px]"
+                                    className="grid gap-2 rounded-xl border border-white/8 bg-[#111214] p-3 text-sm md:grid-cols-[minmax(0,1fr)_130px_120px_130px_140px]"
                                   >
                                     <span className="min-w-0 truncate font-medium">{product.name}</span>
                                     <span className="text-zinc-400">{type?.name ?? "Тип"}</span>
@@ -1573,7 +2605,7 @@ export default function Home() {
             )}
 
             {activeSection === "warehouse" && activeTab === "products" && (
-              <section className="rounded-md border border-white/8 bg-[#1b1c20]">
+              <section className="rounded-xl border border-white/8 bg-[#1b1c20]">
                 <div className="border-b border-white/8 p-4">
                   <h3 className="font-semibold">Товары</h3>
                 </div>
@@ -1634,7 +2666,7 @@ export default function Home() {
                             <div className="grid gap-3 md:grid-cols-[minmax(220px,420px)_220px_130px_120px_160px]">
                               <Field label="Название товара" hint="Как товар назван у поставщика">
                                 <input
-                                  className="h-10 w-full min-w-0 rounded-md border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
+                                  className="h-10 w-full min-w-0 rounded-xl border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
                                   value={product.name}
                                   onChange={(event) =>
                                     updateProduct(product.id, {
@@ -1659,7 +2691,7 @@ export default function Home() {
                               </Field>
                               <Field label="Фасовка" hint="Сколько единиц расхода в одной упаковке">
                                 <input
-                                  className="h-10 w-full min-w-0 rounded-md border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
+                                  className="h-10 w-full min-w-0 rounded-xl border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
                                   inputMode="decimal"
                                   value={product.packageSize}
                                   onChange={(event) =>
@@ -1669,14 +2701,14 @@ export default function Home() {
                               </Field>
                               <Field label="Ед. расхода" hint="В чём списываем: кг, л или шт">
                                 <input
-                                  className="h-10 w-full min-w-0 rounded-md border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
+                                  className="h-10 w-full min-w-0 rounded-xl border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
                                   value={product.stockUnit}
                                   onChange={(event) => updateProduct(product.id, { stockUnit: event.target.value })}
                                 />
                               </Field>
                               <Field label="Срок по умолчанию, дн." hint="Подставляется новым партиям этого товара">
                                 <input
-                                  className="h-10 w-full min-w-0 rounded-md border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
+                                  className="h-10 w-full min-w-0 rounded-xl border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
                                   inputMode="numeric"
                                   value={product.shelfLifeDays}
                                   onChange={(event) =>
@@ -1687,7 +2719,7 @@ export default function Home() {
                             </div>
 
                             {product.batches.length === 0 ? (
-                              <div className="grid min-h-20 place-items-center rounded-md border border-white/8 bg-[#111214]">
+                              <div className="grid min-h-20 place-items-center rounded-xl border border-white/8 bg-[#111214]">
                                 <Archive className="size-5 text-zinc-600" />
                               </div>
                             ) : (
@@ -1698,7 +2730,7 @@ export default function Home() {
                                 const expired = isBatchExpired(batch);
                                 const spent = batch.remainingAmount <= 0;
                                 return (
-                                  <div key={batch.id} className="space-y-3 rounded-md border border-white/8 bg-[#111214] p-3">
+                                  <div key={batch.id} className="space-y-3 rounded-xl border border-white/8 bg-[#111214] p-3">
                                     <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
                                       <span className="flex items-center gap-2">
                                         <span>
@@ -1724,11 +2756,26 @@ export default function Home() {
                                           ? "без цены"
                                           : `${formatMoney(batchUnitPrice)} / ${product.stockUnit}`}
                                       </span>
+                                      <button
+                                        className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-xl border border-white/8 px-3 text-xs text-zinc-300 hover:bg-[#25272c] disabled:cursor-not-allowed disabled:opacity-40"
+                                        type="button"
+                                        disabled={spent}
+                                        onClick={() => {
+                                          setWriteOffTarget({ product, batch });
+                                          setWriteOffAmount(String(formatAmount(batch.remainingAmount)));
+                                          setWriteOffReason(WRITE_OFF_REASONS[0]);
+                                          setWriteOffCustomReason("");
+                                          setWriteOffFormError(null);
+                                        }}
+                                      >
+                                        <Trash2 className="size-3.5" />
+                                        Списать
+                                      </button>
                                     </div>
                                     <div className="grid gap-2 md:grid-cols-[110px_130px_140px_150px_110px_150px]">
                                       <Field label="Упаковок" hint="Сколько упаковок пришло в этой партии">
                                         <input
-                                          className="h-9 w-full min-w-0 rounded-md border border-white/8 bg-[#17181b] px-3 text-sm outline-none focus:border-zinc-400"
+                                          className="h-9 w-full min-w-0 rounded-xl border border-white/8 bg-[#17181b] px-3 text-sm outline-none focus:border-zinc-400"
                                           inputMode="decimal"
                                           value={batch.packs}
                                           onChange={(event) =>
@@ -1740,7 +2787,7 @@ export default function Home() {
                                       </Field>
                                       <Field label={`Остаток, ${product.stockUnit}`} hint="Сколько реально осталось от партии">
                                         <input
-                                          className="h-9 w-full min-w-0 rounded-md border border-white/8 bg-[#17181b] px-3 text-sm outline-none focus:border-zinc-400"
+                                          className="h-9 w-full min-w-0 rounded-xl border border-white/8 bg-[#17181b] px-3 text-sm outline-none focus:border-zinc-400"
                                           inputMode="decimal"
                                           value={batch.remainingAmount}
                                           onChange={(event) =>
@@ -1752,7 +2799,7 @@ export default function Home() {
                                       </Field>
                                       <Field label="Цена партии, ₽" hint="Сумма по чеку за всю партию">
                                         <input
-                                          className="h-9 w-full min-w-0 rounded-md border border-white/8 bg-[#17181b] px-3 text-sm outline-none focus:border-zinc-400"
+                                          className="h-9 w-full min-w-0 rounded-xl border border-white/8 bg-[#17181b] px-3 text-sm outline-none focus:border-zinc-400"
                                           inputMode="decimal"
                                           placeholder="Цена партии"
                                           value={batch.totalPrice ?? ""}
@@ -1766,7 +2813,7 @@ export default function Home() {
                                       </Field>
                                       <Field label="Дата закупки" hint="От неё считается срок годности">
                                         <input
-                                          className="h-9 w-full min-w-0 rounded-md border border-white/8 bg-[#17181b] px-3 text-sm outline-none focus:border-zinc-400"
+                                          className="h-9 w-full min-w-0 rounded-xl border border-white/8 bg-[#17181b] px-3 text-sm outline-none focus:border-zinc-400"
                                           type="date"
                                           value={batch.receivedAt}
                                           onChange={(event) =>
@@ -1776,7 +2823,7 @@ export default function Home() {
                                       </Field>
                                       <Field label="Срок, дн." hint="Сколько дней партия годна с даты закупки">
                                         <input
-                                          className="h-9 w-full min-w-0 rounded-md border border-white/8 bg-[#17181b] px-3 text-sm outline-none focus:border-zinc-400"
+                                          className="h-9 w-full min-w-0 rounded-xl border border-white/8 bg-[#17181b] px-3 text-sm outline-none focus:border-zinc-400"
                                           inputMode="numeric"
                                           value={batch.shelfLifeDays}
                                           onChange={(event) =>
@@ -1788,7 +2835,7 @@ export default function Home() {
                                       </Field>
                                       <Field label="Годен до" hint="Реальная дата с упаковки: свежая партия или уже уставшая">
                                         <input
-                                          className="h-9 w-full min-w-0 rounded-md border border-white/8 bg-[#17181b] px-3 text-sm outline-none focus:border-zinc-400"
+                                          className="h-9 w-full min-w-0 rounded-xl border border-white/8 bg-[#17181b] px-3 text-sm outline-none focus:border-zinc-400"
                                           type="date"
                                           value={batch.expiresAt}
                                           onChange={(event) =>
@@ -1825,6 +2872,85 @@ export default function Home() {
                 </div>
               </section>
             )}
+
+            {activeSection === "warehouse" && activeTab === "write-offs" && (
+              <section className="rounded-xl border border-white/8 bg-[#1b1c20]">
+                <div className="border-b border-white/8 p-4">
+                  <h3 className="font-semibold">Архив списаний</h3>
+                </div>
+                <div className="divide-y divide-white/8">
+                  {listWriteOffs.length === 0 ? (
+                    <Empty icon={Trash2} />
+                  ) : (
+                    listWriteOffs.map((entry) => (
+                      <div key={entry.id} className="flex items-center gap-3 px-4 py-2 text-sm">
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate font-medium">{entry.productName}</p>
+                          <p className="truncate text-xs text-zinc-500">
+                            {new Date(entry.createdAt).toLocaleString("ru-RU")} · {entry.reason}
+                          </p>
+                        </div>
+                        <div className="shrink-0 text-right">
+                          <p className="text-zinc-400">
+                            −{formatAmount(entry.amount)} {entry.unit}
+                          </p>
+                          {entry.value > 0 && <p className="text-xs text-rose-400">−{formatMoney(entry.value)}</p>}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </section>
+            )}
+
+            {activeSection === "guests" && (
+              <section className="rounded-xl border border-white/8 bg-[#1b1c20]">
+                <div className="border-b border-white/8 p-4">
+                  <h3 className="font-semibold">Гости</h3>
+                </div>
+                <div className="divide-y divide-white/8">
+                  {guestsError ? (
+                    <div className="grid min-h-44 place-items-center p-6 text-sm text-rose-400">{guestsError}</div>
+                  ) : filteredGuests.length === 0 ? (
+                    <Empty icon={UsersRound} />
+                  ) : (
+                    filteredGuests.map((guest) => (
+                      <div key={guest.id} className="flex items-center gap-3 px-4 py-2">
+                        <div className="grid size-9 shrink-0 place-items-center rounded-full bg-white/8 text-sm font-medium">
+                          {guest.name.slice(0, 1).toUpperCase()}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium">{guest.name}</p>
+                          <p className="truncate text-xs text-zinc-500">
+                            {[guest.phone, guest.telegram ? `@${guest.telegram}` : null]
+                              .filter(Boolean)
+                              .join(" · ") || "нет контактов"}
+                          </p>
+                          {guest.comment && <p className="truncate text-xs text-amber-300/80">{guest.comment}</p>}
+                        </div>
+                        <span className="shrink-0 text-xs text-zinc-500">{guest.xp} XP</span>
+                        <button
+                          className="grid size-8 shrink-0 place-items-center rounded-xl border border-white/8 text-zinc-400 hover:bg-[#25272c]"
+                          type="button"
+                          title="Редактировать"
+                          onClick={() => openEditGuest(guest)}
+                        >
+                          <Pencil className="size-4" />
+                        </button>
+                        <button
+                          className="grid size-8 shrink-0 place-items-center rounded-xl border border-white/8 text-zinc-400 hover:bg-[#25272c] hover:text-rose-400"
+                          type="button"
+                          title="Удалить"
+                          onClick={() => deleteGuest(guest)}
+                        >
+                          <Trash2 className="size-4" />
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </section>
+            )}
           </div>
         </section>
       </div>
@@ -1842,7 +2968,7 @@ export default function Home() {
                 </p>
               </div>
             </div>
-            <div className="rounded-md border border-white/8 bg-[#17181b]">
+            <div className="rounded-xl border border-white/8 bg-[#17181b]">
               <div className="border-b border-white/8 px-4 py-3 text-sm font-semibold">Состав</div>
               <div className="divide-y divide-white/8">
                 {infoPosition.ingredients.map((ingredient) => {
@@ -1869,14 +2995,14 @@ export default function Home() {
 
       {isOrderModalOpen && (
         <Modal
-          title="Новый заказ"
+          title={`Новый заказ · №${orderCounter + 1}`}
           onClose={() => {
             setIsOrderModalOpen(false);
             setSearchQuery("");
           }}
         >
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
-            <div className="flex min-h-0 flex-col rounded-md border border-white/8 bg-[#17181b]">
+            <div className="flex min-h-0 flex-col rounded-xl border border-white/8 bg-[#17181b]">
               <label className="flex h-12 items-center gap-2 border-b border-white/8 px-4">
                 <Search className="size-4 text-zinc-500" />
                 <input
@@ -1910,7 +3036,7 @@ export default function Home() {
                         </div>
                         <div className="flex shrink-0 items-center gap-1">
                           <button
-                            className="grid size-8 place-items-center rounded-md border border-white/8 text-zinc-300 hover:bg-[#25272c] disabled:opacity-30"
+                            className="grid size-8 place-items-center rounded-xl border border-white/8 text-zinc-300 hover:bg-[#25272c] disabled:opacity-30"
                             disabled={quantity === 0}
                             type="button"
                             title="Убрать"
@@ -1926,7 +3052,7 @@ export default function Home() {
                             {quantity > 0 ? formatOrderQuantity(position, quantity) : "—"}
                           </span>
                           <button
-                            className="grid size-8 place-items-center rounded-md bg-zinc-100 text-zinc-950 hover:bg-white disabled:cursor-not-allowed disabled:opacity-30"
+                            className="grid size-8 place-items-center rounded-xl bg-zinc-100 text-zinc-950 hover:bg-white disabled:cursor-not-allowed disabled:opacity-30"
                             disabled={!canAddMore}
                             type="button"
                             title={canAddMore ? "Добавить" : "Не хватает остатка"}
@@ -1942,7 +3068,7 @@ export default function Home() {
               </div>
             </div>
 
-            <aside className="flex min-h-[420px] flex-col rounded-md border border-white/8 bg-[#17181b]">
+            <aside className="flex min-h-[420px] flex-col rounded-xl border border-white/8 bg-[#17181b]">
               <div className="flex items-center gap-2 border-b border-white/8 p-4">
                 <ShoppingCart className="size-4 text-violet-300" />
                 <h4 className="font-semibold">Заказ</h4>
@@ -1963,18 +3089,68 @@ export default function Home() {
                 )}
               </div>
               <div className="space-y-3 border-t border-white/8 p-4">
+                <div className="relative">
+                  {orderGuest ? (
+                    <div className="flex items-center justify-between rounded-xl border border-white/8 bg-[#111214] px-3 py-2 text-sm">
+                      <span className="truncate">{orderGuest.name}</span>
+                      <button
+                        className="grid size-6 shrink-0 place-items-center rounded-full text-zinc-500 hover:bg-[#25272c]"
+                        type="button"
+                        title="Убрать гостя"
+                        onClick={() => setOrderGuest(null)}
+                      >
+                        <X className="size-3.5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <input
+                      className="h-10 w-full rounded-xl border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
+                      placeholder="Гость: имя, ник или телеграм"
+                      value={guestSearchQuery}
+                      onChange={(event) => setGuestSearchQuery(event.target.value)}
+                    />
+                  )}
+                  {!orderGuest && guestSearchResults.length > 0 && (
+                    <div className="absolute bottom-11 left-0 right-0 z-20 max-h-48 overflow-y-auto rounded-xl border border-white/10 bg-[#111214] p-1 shadow-2xl">
+                      {guestSearchResults.map((g) => (
+                        <button
+                          key={g.id}
+                          className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm text-zinc-200 hover:bg-white/8"
+                          type="button"
+                          onClick={() => {
+                            setOrderGuest(g);
+                            setGuestSearchQuery("");
+                          }}
+                        >
+                          <span className="truncate">{g.name}</span>
+                          <span className="shrink-0 text-xs text-zinc-500">{g.telegram ? `@${g.telegram}` : g.phone}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-zinc-500">Итого</span>
                   <strong>{formatMoney(orderTotal)}</strong>
                 </div>
-                <button
-                  className="h-11 w-full rounded-md bg-violet-500 px-4 text-sm font-semibold text-white hover:bg-violet-400 disabled:cursor-not-allowed disabled:opacity-40"
-                  disabled={orderLines.length === 0 || !canCompleteOrder()}
-                  type="button"
-                  onClick={completeOrder}
-                >
-                  Провести заказ
-                </button>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    className="h-11 rounded-xl bg-violet-500 px-2 text-sm font-semibold text-white hover:bg-violet-400 disabled:cursor-not-allowed disabled:opacity-40"
+                    disabled={orderLines.length === 0 || !canCompleteOrder()}
+                    type="button"
+                    onClick={() => completeOrder("kitchen")}
+                  >
+                    Передать на кухню
+                  </button>
+                  <button
+                    className="h-11 rounded-xl bg-zinc-100 px-2 text-sm font-semibold text-zinc-950 hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
+                    disabled={orderLines.length === 0 || !canCompleteOrder()}
+                    type="button"
+                    onClick={() => completeOrder("self")}
+                  >
+                    Самостоятельно
+                  </button>
+                </div>
               </div>
             </aside>
           </div>
@@ -1989,7 +3165,7 @@ export default function Home() {
                 <div className="flex items-center gap-2">
                   <CalendarDays className="size-4 text-zinc-500" />
                   <input
-                    className="h-10 w-full rounded-md border border-white/8 bg-[#111214] px-3 text-sm text-zinc-100 outline-none focus:border-zinc-400"
+                    className="h-10 w-full rounded-xl border border-white/8 bg-[#111214] px-3 text-sm text-zinc-100 outline-none focus:border-zinc-400"
                     type="date"
                     value={receivedAt}
                     onChange={(event) => setReceivedAt(event.target.value)}
@@ -1998,7 +3174,7 @@ export default function Home() {
               </Field>
               <Field label="Текст заказа" hint="Вставь список из письма или приложения поставщика">
               <textarea
-                className="min-h-[calc(100vh-260px)] w-full resize-none rounded-md border border-white/8 bg-[#111214] p-4 text-sm leading-6 text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-zinc-400"
+                className="min-h-[calc(100vh-260px)] w-full resize-none rounded-xl border border-white/8 bg-[#111214] p-4 text-sm leading-6 text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-zinc-400"
                 placeholder="Вставь текст заказа"
                 value={rawText}
                 onChange={(event) => {
@@ -2009,11 +3185,11 @@ export default function Home() {
               </Field>
             </div>
 
-            <div className="rounded-md border border-white/8 bg-[#17181b]">
+            <div className="rounded-xl border border-white/8 bg-[#17181b]">
               <div className="flex items-center justify-between border-b border-white/8 p-4">
                 <h4 className="font-semibold">Распознано</h4>
                 <button
-                  className="h-10 rounded-md bg-zinc-100 px-4 text-sm font-medium text-zinc-950 hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
+                  className="h-10 rounded-xl bg-zinc-100 px-4 text-sm font-medium text-zinc-950 hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
                   disabled={parsedItems.length === 0}
                   type="button"
                   onClick={applyPurchase}
@@ -2029,7 +3205,7 @@ export default function Home() {
                     <div key={item.id} className="grid gap-3 p-4">
                       <Field label="Название товара" hint="Как товар назван у поставщика">
                         <input
-                          className="h-10 w-full rounded-md border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
+                          className="h-10 w-full rounded-xl border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
                           value={item.name}
                           onChange={(event) => updateParsedItem(item.id, { name: event.target.value })}
                         />
@@ -2053,7 +3229,7 @@ export default function Home() {
                         </Field>
                         <Field label="Упаковок" hint="Сколько упаковок привезли">
                           <input
-                            className="h-10 w-full rounded-md border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
+                            className="h-10 w-full rounded-xl border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
                             inputMode="decimal"
                             value={item.quantity}
                             onChange={(event) => updateParsedItem(item.id, { quantity: numericInput(event.target.value) })}
@@ -2061,7 +3237,7 @@ export default function Home() {
                         </Field>
                         <Field label="Фасовка" hint="Сколько единиц расхода в одной упаковке">
                           <input
-                            className="h-10 w-full rounded-md border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
+                            className="h-10 w-full rounded-xl border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
                             inputMode="decimal"
                             value={item.packageSize}
                             onChange={(event) =>
@@ -2071,21 +3247,21 @@ export default function Home() {
                         </Field>
                         <Field label="Ед. упаковки" hint="Как считаем упаковку: уп., шт., кег">
                           <input
-                            className="h-10 w-full rounded-md border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
+                            className="h-10 w-full rounded-xl border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
                             value={item.unit}
                             onChange={(event) => updateParsedItem(item.id, { unit: event.target.value })}
                           />
                         </Field>
                         <Field label="Ед. расхода" hint="В чём списываем: кг, л или шт">
                           <input
-                            className="h-10 w-full rounded-md border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
+                            className="h-10 w-full rounded-xl border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
                             value={item.stockUnit}
                             onChange={(event) => updateParsedItem(item.id, { stockUnit: event.target.value })}
                           />
                         </Field>
                         <Field label="Срок, дн." hint="Сколько дней товар годен с даты закупки">
                           <input
-                            className="h-10 w-full rounded-md border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
+                            className="h-10 w-full rounded-xl border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
                             inputMode="numeric"
                             value={item.shelfLifeDays}
                             onChange={(event) =>
@@ -2095,7 +3271,7 @@ export default function Home() {
                         </Field>
                         <Field label="Годен до" hint="Реальная дата с упаковки: привезли свежее или уже уставшее">
                           <input
-                            className="h-10 w-full rounded-md border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
+                            className="h-10 w-full rounded-xl border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
                             type="date"
                             value={addDays(receivedAt, item.shelfLifeDays)}
                             onChange={(event) =>
@@ -2106,13 +3282,13 @@ export default function Home() {
                           />
                         </Field>
                         <Field label="Сумма" hint="Сумма по чеку за эту строку">
-                          <div className="flex h-10 items-center rounded-md bg-[#202226] px-3 text-sm">
+                          <div className="flex h-10 items-center rounded-xl bg-[#202226] px-3 text-sm">
                             {formatMoney(item.totalPrice)}
                           </div>
                         </Field>
                         <Field label=" " hint="Убрать строку из закупки">
                           <button
-                            className="grid h-10 w-full place-items-center rounded-md border border-white/8 text-zinc-400 hover:bg-red-400/10 hover:text-red-200"
+                            className="grid h-10 w-full place-items-center rounded-xl border border-white/8 text-zinc-400 hover:bg-red-400/10 hover:text-red-200"
                             type="button"
                             title="Удалить"
                             onClick={() => setParsedItems((items) => items.filter((row) => row.id !== item.id))}
@@ -2135,7 +3311,7 @@ export default function Home() {
           <div className="grid gap-3 xl:grid-cols-[minmax(240px,420px)_240px_100px_120px_110px_120px_150px]">
             <Field label="Название товара" hint="Как товар назван у поставщика">
               <input
-                className="h-10 w-full rounded-md border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
+                className="h-10 w-full rounded-xl border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
                 placeholder="Название товара"
                 value={newProduct.name}
                 onChange={(event) => setNewProduct((item) => ({ ...item, name: event.target.value }))}
@@ -2160,7 +3336,7 @@ export default function Home() {
             </Field>
             <Field label="Упаковок" hint="0 — если заводим карточку без остатка">
               <input
-                className="h-10 w-full rounded-md border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
+                className="h-10 w-full rounded-xl border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
                 inputMode="decimal"
                 value={newProduct.quantity}
                 onChange={(event) => setNewProduct((item) => ({ ...item, quantity: numericInput(event.target.value) }))}
@@ -2168,7 +3344,7 @@ export default function Home() {
             </Field>
             <Field label="Фасовка" hint="Сколько единиц расхода в одной упаковке">
               <input
-                className="h-10 w-full rounded-md border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
+                className="h-10 w-full rounded-xl border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
                 inputMode="decimal"
                 value={newProduct.packageSize}
                 onChange={(event) =>
@@ -2178,14 +3354,14 @@ export default function Home() {
             </Field>
             <Field label="Ед. расхода" hint="В чём списываем: кг, л или шт">
               <input
-                className="h-10 w-full rounded-md border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
+                className="h-10 w-full rounded-xl border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
                 value={newProduct.stockUnit}
                 onChange={(event) => setNewProduct((item) => ({ ...item, stockUnit: event.target.value }))}
               />
             </Field>
             <Field label="Срок, дн." hint="Сколько дней товар годен с даты закупки">
               <input
-                className="h-10 w-full rounded-md border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
+                className="h-10 w-full rounded-xl border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
                 inputMode="numeric"
                 value={newProduct.shelfLifeDays}
                 onChange={(event) =>
@@ -2195,7 +3371,7 @@ export default function Home() {
             </Field>
             <Field label="Годен до" hint="Реальная дата с упаковки">
               <input
-                className="h-10 w-full rounded-md border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
+                className="h-10 w-full rounded-xl border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
                 type="date"
                 value={addDays(receivedAt, newProduct.shelfLifeDays || "0")}
                 onChange={(event) =>
@@ -2209,7 +3385,7 @@ export default function Home() {
           </div>
           <div className="mt-4 flex justify-end">
             <button
-              className="h-10 rounded-md bg-zinc-100 px-4 text-sm font-medium text-zinc-950 hover:bg-white"
+              className="h-10 rounded-xl bg-zinc-100 px-4 text-sm font-medium text-zinc-950 shadow-md shadow-black/25 hover:bg-white"
               type="button"
               onClick={addManualProduct}
             >
@@ -2219,13 +3395,168 @@ export default function Home() {
         </Modal>
       )}
 
+      {writeOffTarget && (
+        <Modal title={`Списать: ${writeOffTarget.product.name}`} onClose={() => setWriteOffTarget(null)}>
+          <div className="mx-auto grid max-w-md gap-3">
+            <Field
+              label={`Количество, ${writeOffTarget.product.stockUnit}`}
+              hint={`Доступно: ${formatAmount(writeOffTarget.batch.remainingAmount)} ${writeOffTarget.product.stockUnit}`}
+            >
+              <input
+                className="h-11 w-full rounded-xl border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
+                inputMode="decimal"
+                value={writeOffAmount}
+                onChange={(event) => setWriteOffAmount(numericInput(event.target.value))}
+              />
+            </Field>
+            <Field label="Причина">
+              <DarkSelect
+                value={writeOffReason}
+                options={WRITE_OFF_REASONS.map((reason) => ({ id: reason, label: reason }))}
+                onChange={setWriteOffReason}
+              />
+            </Field>
+            {writeOffReason === "Другое" && (
+              <Field label="Уточните причину">
+                <input
+                  className="h-11 w-full rounded-xl border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
+                  value={writeOffCustomReason}
+                  onChange={(event) => setWriteOffCustomReason(event.target.value)}
+                />
+              </Field>
+            )}
+            {writeOffFormError && <p className="text-sm text-rose-400">{writeOffFormError}</p>}
+            <button
+              className="h-10 rounded-xl bg-zinc-100 px-4 text-sm font-medium text-zinc-950 shadow-md shadow-black/25 hover:bg-white"
+              type="button"
+              onClick={submitWriteOff}
+            >
+              Списать
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {editingOrderId && (
+        <Modal title="Редактировать заказ" onClose={() => setEditingOrderId(null)}>
+          <div className="mx-auto grid max-w-lg gap-3">
+            {orderEditItems.length === 0 ? (
+              <p className="text-sm text-zinc-500">В заказе не осталось позиций</p>
+            ) : (
+              orderEditItems.map((item, index) => (
+                <div key={index} className="flex items-center gap-3 rounded-xl border border-white/8 bg-[#111214] p-3">
+                  <span className="min-w-0 flex-1 truncate text-sm">{item.name}</span>
+                  <span className="shrink-0 text-xs text-zinc-500">{formatMoney(item.price)} / шт</span>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <button
+                      className="grid size-7 place-items-center rounded-lg border border-white/8 text-zinc-300 hover:bg-[#25272c]"
+                      type="button"
+                      onClick={() => updateOrderEditQuantity(index, item.quantity - 1)}
+                    >
+                      <Minus className="size-3.5" />
+                    </button>
+                    <span className="w-6 text-center text-sm">{item.quantity}</span>
+                    <button
+                      className="grid size-7 place-items-center rounded-lg border border-white/8 text-zinc-300 hover:bg-[#25272c]"
+                      type="button"
+                      onClick={() => updateOrderEditQuantity(index, item.quantity + 1)}
+                    >
+                      <Plus className="size-3.5" />
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+            <div className="flex items-center justify-between border-t border-white/8 pt-3">
+              <span className="text-sm text-zinc-400">Итого</span>
+              <strong>
+                {formatMoney(orderEditItems.reduce((sum, item) => sum + item.price * item.quantity, 0))}
+              </strong>
+            </div>
+            <button
+              className="h-10 rounded-xl bg-zinc-100 px-4 text-sm font-medium text-zinc-950 shadow-md shadow-black/25 hover:bg-white"
+              type="button"
+              onClick={saveOrderEdit}
+            >
+              Сохранить
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {isCategoryModalOpen && (
+        <Modal title="Разделы меню" onClose={() => setIsCategoryModalOpen(false)}>
+          <div className="mx-auto grid max-w-md gap-3">
+            {menuCategories.length === 0 ? (
+              <p className="text-sm text-zinc-500">Разделов пока нет</p>
+            ) : (
+              menuCategories.map((category) => (
+                <div key={category.id} className="flex items-center gap-2 rounded-xl border border-white/8 bg-[#111214] p-2">
+                  {editingCategoryId === category.id ? (
+                    <input
+                      autoFocus
+                      className="h-9 min-w-0 flex-1 rounded-lg border border-white/8 bg-[#1b1c20] px-3 text-sm outline-none focus:border-zinc-400"
+                      value={editingCategoryName}
+                      onChange={(event) => setEditingCategoryName(event.target.value)}
+                      onKeyDown={(event) => event.key === "Enter" && saveRenameCategory()}
+                      onBlur={saveRenameCategory}
+                    />
+                  ) : (
+                    <span className="min-w-0 flex-1 truncate px-2 text-sm">{category.name}</span>
+                  )}
+                  <button
+                    className="grid size-8 shrink-0 place-items-center rounded-lg text-zinc-400 hover:bg-[#25272c]"
+                    type="button"
+                    title="Переименовать"
+                    onClick={() => startRenameCategory(category)}
+                  >
+                    <Pencil className="size-4" />
+                  </button>
+                  <button
+                    className="grid size-8 shrink-0 place-items-center rounded-lg text-zinc-400 hover:bg-[#25272c] hover:text-rose-400"
+                    type="button"
+                    title="Удалить"
+                    onClick={() => deleteCategory(category)}
+                  >
+                    <Trash2 className="size-4" />
+                  </button>
+                </div>
+              ))
+            )}
+            <div className="flex gap-2 border-t border-white/8 pt-3">
+              <input
+                className="h-10 min-w-0 flex-1 rounded-xl border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
+                placeholder="Новый раздел"
+                value={newCategoryName}
+                onChange={(event) => setNewCategoryName(event.target.value)}
+                onKeyDown={(event) => event.key === "Enter" && createCategory()}
+              />
+              <button
+                className="grid size-10 shrink-0 place-items-center rounded-xl bg-zinc-100 text-zinc-950 hover:bg-white"
+                type="button"
+                title="Добавить"
+                onClick={createCategory}
+              >
+                <Plus className="size-4" />
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
       {isPositionModalOpen && (
-        <Modal title="Собрать позицию" onClose={() => setIsPositionModalOpen(false)}>
+        <Modal
+          title={editingPositionId ? "Изменить позицию" : "Собрать позицию"}
+          onClose={() => {
+            setIsPositionModalOpen(false);
+            setEditingPositionId(null);
+          }}
+        >
           <div className="grid gap-4 lg:grid-cols-[420px_minmax(0,1fr)]">
             <div className="space-y-3">
               <Field label="Название позиции" hint="Как блюдо называется в меню">
                 <input
-                  className="h-11 w-full rounded-md border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
+                  className="h-11 w-full rounded-xl border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
                   placeholder="Название позиции"
                   value={draftPosition.name}
                   onChange={(event) => setDraftPosition((position) => ({ ...position, name: event.target.value }))}
@@ -2233,7 +3564,7 @@ export default function Home() {
               </Field>
               <Field label="Цена продажи, ₽" hint="Сколько гость платит за одну порцию">
                 <input
-                  className="h-11 w-full rounded-md border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
+                  className="h-11 w-full rounded-xl border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
                   inputMode="decimal"
                   placeholder="Цена"
                   value={draftPosition.price}
@@ -2244,14 +3575,34 @@ export default function Home() {
               </Field>
               <Field label="Фото, ссылка" hint="Картинка для карточки и кассы">
                 <input
-                  className="h-11 w-full rounded-md border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
+                  className="h-11 w-full rounded-xl border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
                   placeholder="Фото URL"
                   value={draftPosition.imageUrl}
                   onChange={(event) => setDraftPosition((position) => ({ ...position, imageUrl: event.target.value }))}
                 />
               </Field>
+              <Field label="Раздел" hint="К какому разделу меню относится позиция">
+                <DarkSelect
+                  value={draftPosition.categoryId ?? ""}
+                  options={[
+                    { id: "", label: "Без раздела" },
+                    ...menuCategories.map((c) => ({ id: c.id, label: c.name })),
+                  ]}
+                  onChange={(value) =>
+                    setDraftPosition((position) => ({ ...position, categoryId: value || null }))
+                  }
+                />
+              </Field>
+              <Field label="Комментарий повару" hint="Особые указания по приготовлению — увидит повар на кухне">
+                <input
+                  className="h-11 w-full rounded-xl border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
+                  placeholder="Например: без сыра по запросу"
+                  value={draftPosition.comment ?? ""}
+                  onChange={(event) => setDraftPosition((position) => ({ ...position, comment: event.target.value }))}
+                />
+              </Field>
               <button
-                className="h-10 rounded-md bg-zinc-100 px-4 text-sm font-medium text-zinc-950 hover:bg-white"
+                className="h-10 rounded-xl bg-zinc-100 px-4 text-sm font-medium text-zinc-950 shadow-md shadow-black/25 hover:bg-white"
                 type="button"
                 onClick={saveMenuPosition}
               >
@@ -2264,33 +3615,71 @@ export default function Home() {
                 Состав: из каких складских типов и сколько списывать на одну порцию.
               </p>
               {draftPosition.ingredients.map((ingredient) => (
-                <div key={ingredient.id} className="grid min-w-0 gap-2 md:grid-cols-[minmax(0,1fr)_160px]">
-                  <Field label="Тип расхода" hint="Помидоры любых поставщиков — один тип">
-                  <DarkSelect
-                    value={ingredient.typeId}
-                    options={[
-                      { id: "", label: "Тип склада" },
-                      ...productTypes.map((type) => ({ id: type.id, label: type.name })),
-                    ]}
-                    onChange={(value) => updateIngredient(ingredient.id, { typeId: value })}
-                  />
-                  </Field>
-                  <Field
-                    label={`Расход на порцию${getProductType(ingredient.typeId)?.unit ? `, ${getProductType(ingredient.typeId)?.unit}` : ""}`}
-                    hint="Сколько уходит на одну порцию"
+                <div key={ingredient.id} className="space-y-2 rounded-xl border border-white/8 p-3">
+                  <div className="grid min-w-0 gap-2 md:grid-cols-[minmax(0,1fr)_140px_40px]">
+                    <Field label="Тип расхода" hint="Помидоры любых поставщиков — один тип">
+                    <DarkSelect
+                      value={ingredient.typeId}
+                      options={[
+                        { id: "", label: "Тип склада" },
+                        ...productTypes.map((type) => ({ id: type.id, label: type.name })),
+                      ]}
+                      onChange={(value) => updateIngredient(ingredient.id, { typeId: value })}
+                    />
+                    </Field>
+                    <Field
+                      label={`Расход на порцию${getProductType(ingredient.typeId)?.unit ? `, ${getProductType(ingredient.typeId)?.unit}` : ""}`}
+                      hint="Сколько уходит на одну порцию"
+                    >
+                    <input
+                      className="h-10 w-full rounded-xl border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
+                      inputMode="decimal"
+                      placeholder="Вес/кол-во"
+                      value={ingredient.amount}
+                      onChange={(event) => updateIngredient(ingredient.id, { amount: numericInput(event.target.value) })}
+                    />
+                    </Field>
+                    <button
+                      className="h-10 self-end rounded-xl border border-white/8 text-zinc-500 hover:bg-[#25272c] hover:text-rose-400"
+                      type="button"
+                      title="Удалить строку"
+                      onClick={() => removeIngredientRow(ingredient.id)}
+                    >
+                      <Trash2 className="mx-auto size-4" />
+                    </button>
+                  </div>
+
+                  {(ingredient.altTypeIds ?? []).map((altId, altIndex) => (
+                    <div key={altIndex} className="grid min-w-0 gap-2 pl-4 md:grid-cols-[minmax(0,1fr)_40px]">
+                      <DarkSelect
+                        value={altId}
+                        options={[
+                          { id: "", label: "Альтернативный тип" },
+                          ...productTypes.map((type) => ({ id: type.id, label: type.name })),
+                        ]}
+                        onChange={(value) => updateIngredientAlt(ingredient.id, altIndex, value)}
+                      />
+                      <button
+                        className="h-10 rounded-xl border border-white/8 text-zinc-500 hover:bg-[#25272c] hover:text-rose-400"
+                        type="button"
+                        title="Убрать альтернативу"
+                        onClick={() => removeIngredientAlt(ingredient.id, altIndex)}
+                      >
+                        <X className="mx-auto size-4" />
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    className="pl-4 text-xs text-zinc-500 hover:text-zinc-300"
+                    type="button"
+                    onClick={() => addIngredientAlt(ingredient.id)}
                   >
-                  <input
-                    className="h-10 w-full rounded-md border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
-                    inputMode="decimal"
-                    placeholder="Вес/кол-во"
-                    value={ingredient.amount}
-                    onChange={(event) => updateIngredient(ingredient.id, { amount: numericInput(event.target.value) })}
-                  />
-                  </Field>
+                    + альтернативный тип (если можно списывать с другого склада)
+                  </button>
                 </div>
               ))}
               <button
-                className="h-10 rounded-md border border-white/8 px-4 text-sm text-zinc-300 hover:bg-[#25272c]"
+                className="h-10 rounded-xl border border-white/8 px-4 text-sm text-zinc-300 hover:bg-[#25272c]"
                 type="button"
                 onClick={addIngredientRow}
               >
@@ -2299,6 +3688,65 @@ export default function Home() {
             </div>
           </div>
         </Modal>
+      )}
+
+      {isGuestModalOpen && (
+        <Modal
+          title={editingGuestId ? "Изменить гостя" : "Добавить гостя"}
+          onClose={() => {
+            setIsGuestModalOpen(false);
+            setEditingGuestId(null);
+          }}
+        >
+          <div className="mx-auto grid max-w-md gap-3">
+            <Field label="Имя" hint="Как обращаться к гостю">
+              <input
+                className="h-11 w-full rounded-xl border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
+                placeholder="Имя гостя"
+                value={draftGuest.name}
+                onChange={(event) => setDraftGuest((guest) => ({ ...guest, name: event.target.value }))}
+              />
+            </Field>
+            <Field label="Телефон" hint="Необязательно">
+              <input
+                className="h-11 w-full rounded-xl border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
+                placeholder="+7 900 000-00-00"
+                value={draftGuest.phone}
+                onChange={(event) => setDraftGuest((guest) => ({ ...guest, phone: event.target.value }))}
+              />
+            </Field>
+            <Field label="Телеграм" hint="Необязательно, без @">
+              <input
+                className="h-11 w-full rounded-xl border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
+                placeholder="username"
+                value={draftGuest.telegram}
+                onChange={(event) => setDraftGuest((guest) => ({ ...guest, telegram: event.target.value }))}
+              />
+            </Field>
+            <Field label="Комментарий" hint="Например: любит лагер">
+              <input
+                className="h-11 w-full rounded-xl border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
+                placeholder="Заметка о госте"
+                value={draftGuest.comment}
+                onChange={(event) => setDraftGuest((guest) => ({ ...guest, comment: event.target.value }))}
+              />
+            </Field>
+            {guestFormError && <p className="text-sm text-rose-400">{guestFormError}</p>}
+            <button
+              className="h-10 rounded-xl bg-zinc-100 px-4 text-sm font-medium text-zinc-950 shadow-md shadow-black/25 hover:bg-white"
+              type="button"
+              onClick={submitGuest}
+            >
+              Сохранить
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {lastOrderNumber !== null && (
+        <div className="fixed bottom-6 right-6 z-50 rounded-xl border border-emerald-400/30 bg-emerald-500/15 px-4 py-3 text-sm font-medium text-emerald-300 shadow-2xl">
+          Заказ №{lastOrderNumber} оформлен
+        </div>
       )}
     </main>
   );
@@ -2333,31 +3781,33 @@ function ListSearch({
   placeholder: string;
 }) {
   return (
-    <label className="flex h-11 items-center gap-2 rounded-md border border-white/8 bg-[#1b1c20] px-3">
-      <Search className="size-4 shrink-0 text-zinc-500" />
-      <input
-        className="w-full bg-transparent text-sm text-zinc-100 outline-none placeholder:text-zinc-500"
-        placeholder={placeholder}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-      />
-      {value && (
-        <button
-          className="grid size-7 shrink-0 place-items-center rounded text-zinc-500 hover:bg-[#25272c] hover:text-zinc-200"
-          type="button"
-          title="Очистить"
-          onClick={() => onChange("")}
-        >
-          <X className="size-4" />
-        </button>
-      )}
-    </label>
+    <div className="flex justify-center">
+      <label className="flex h-11 w-full max-w-[300px] items-center gap-2 rounded-[100px] border border-white/8 bg-[#1b1c20] px-4">
+        <Search className="size-4 shrink-0 text-zinc-500" />
+        <input
+          className="w-full bg-transparent text-sm text-zinc-100 outline-none placeholder:text-zinc-500"
+          placeholder={placeholder}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+        />
+        {value && (
+          <button
+            className="grid size-7 shrink-0 place-items-center rounded-full text-zinc-500 hover:bg-[#25272c] hover:text-zinc-200"
+            type="button"
+            title="Очистить"
+            onClick={() => onChange("")}
+          >
+            <X className="size-4" />
+          </button>
+        )}
+      </label>
+    </div>
   );
 }
 
 function Metric({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-md border border-white/8 bg-[#1b1c20] p-4">
+    <div className="rounded-2xl border border-white/8 bg-[#1b1c20] p-4 shadow-lg shadow-black/20">
       <p className="text-sm text-zinc-500">{label}</p>
       <strong className="mt-3 block text-2xl font-semibold">{value}</strong>
     </div>
@@ -2392,7 +3842,7 @@ function DarkSelect({
     <div className="relative min-w-0">
       <button
         className={`flex h-10 w-full min-w-0 items-center justify-between gap-3 border border-white/8 bg-[#1b1c20] px-3 text-sm text-zinc-100 outline-none hover:bg-[#25272c] ${
-          pill ? "min-w-44 rounded-full" : "rounded-md"
+          pill ? "min-w-44 rounded-full" : "rounded-xl"
         }`}
         type="button"
         onClick={() => setIsOpen((current) => !current)}
@@ -2405,7 +3855,7 @@ function DarkSelect({
       </button>
 
       {isOpen && (
-        <div className="absolute left-0 right-0 top-11 z-40 max-h-72 overflow-auto rounded-md border border-white/10 bg-[#111214] p-1 shadow-2xl">
+        <div className="absolute left-0 right-0 top-11 z-40 max-h-72 overflow-auto rounded-xl border border-white/10 bg-[#111214] p-1 shadow-2xl">
           {options.map((option) => (
             <button
               key={option.id}
@@ -2444,7 +3894,7 @@ function Modal({
         <div className="flex items-center justify-between border-b border-white/8 p-4">
           <h3 className="text-lg font-semibold">{title}</h3>
           <button
-            className="grid size-9 place-items-center rounded-md border border-white/8 text-zinc-400 hover:bg-[#25272c]"
+            className="grid size-9 place-items-center rounded-xl border border-white/8 text-zinc-400 hover:bg-[#25272c]"
             type="button"
             title="Закрыть"
             onClick={onClose}

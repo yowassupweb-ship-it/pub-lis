@@ -47,12 +47,12 @@ def _humanize(err: dict) -> str:
         msg = "некорректный адрес"
     return f"{label}: {msg}" if label else msg
 
-from routers import auth, games, quests, users
+from routers import auth, events, games, guests, quests, tables, users
 
 MEDIA_DIR = Path(__file__).resolve().parent / "uploads"
 (MEDIA_DIR / "avatars").mkdir(parents=True, exist_ok=True)
 
-app = FastAPI(title="Хитрый лис CRM API", version="0.1.0")
+app = FastAPI(title="CRM API", version="0.1.0")
 
 
 @app.exception_handler(RequestValidationError)
@@ -78,6 +78,9 @@ app.include_router(games.router)
 app.include_router(quests.router)
 app.include_router(users.router)
 app.include_router(users.profile_router)
+app.include_router(guests.router)
+app.include_router(tables.router)
+app.include_router(events.router)
 
 
 @app.get("/api/health")
