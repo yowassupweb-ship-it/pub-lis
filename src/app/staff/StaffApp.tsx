@@ -1858,6 +1858,26 @@ export default function StaffApp() {
   const sortedListMenuPositions = byAvailability(listMenuPositions);
   const sortedFilteredMenuPositions = byAvailability(filteredMenuPositions);
 
+  // Меню в модалке заказа — разбито на разделы с заголовками, как в реальном меню
+  const groupPositionsByCategory = (positions: MenuPosition[]) => {
+    const byCategory = new Map<string, MenuPosition[]>();
+    for (const position of positions) {
+      const key = position.categoryId ?? uncategorizedCategoryId;
+      const list = byCategory.get(key) ?? [];
+      list.push(position);
+      byCategory.set(key, list);
+    }
+    const groups: { id: string; label: string; positions: MenuPosition[] }[] = [];
+    for (const category of menuCategories) {
+      const positions = byCategory.get(category.id);
+      if (positions) groups.push({ id: category.id, label: category.name, positions });
+    }
+    const uncategorized = byCategory.get(uncategorizedCategoryId);
+    if (uncategorized) groups.push({ id: uncategorizedCategoryId, label: "Без раздела", positions: uncategorized });
+    return groups;
+  };
+  const groupedOrderPositions = groupPositionsByCategory(sortedFilteredMenuPositions);
+
   const orderIngredients = orderLines.flatMap((line) =>
     line.position.ingredients.map((ingredient) => ({
       ...ingredient,
@@ -3095,7 +3115,7 @@ export default function StaffApp() {
         >
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
             <div className="flex min-h-0 flex-col rounded-xl border border-white/8 bg-[#17181b]">
-              <label className="flex h-12 items-center gap-2 border-b border-white/8 px-4">
+              <label className="sticky top-0 z-20 flex h-12 items-center gap-2 border-b border-white/8 bg-[#17181b] px-4">
                 <Search className="size-4 text-zinc-500" />
                 <input
                   autoFocus
@@ -3105,57 +3125,66 @@ export default function StaffApp() {
                   onChange={(event) => setSearchQuery(event.target.value)}
                 />
               </label>
-              <div className="divide-y divide-white/8">
-                {sortedFilteredMenuPositions.length === 0 ? (
+              <div>
+                {groupedOrderPositions.length === 0 ? (
                   <Empty icon={Utensils} />
                 ) : (
-                  sortedFilteredMenuPositions.map((position) => {
-                    const quantity = orderItems[position.id] ?? 0;
-                    const available = canSellMenuPosition(position);
-                    const canAddMore = canAddToOrder(position);
-                    return (
-                      <div
-                        key={position.id}
-                        className={`flex items-center gap-3 px-4 py-2 ${available ? "" : "opacity-55"}`}
-                      >
-                        <PositionThumb src={position.imageUrl} />
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-medium">{position.name}</p>
-                          <p className="text-xs text-zinc-500">
-                            {formatMoney(parseNumber(position.price))} · {formatOrderQuantity(position, 1)}
-                          </p>
-                          <p className="truncate text-[11px] text-zinc-600">{describeComposition(position)}</p>
-                        </div>
-                        <div className="flex shrink-0 items-center gap-1">
-                          <button
-                            className="grid size-8 place-items-center rounded-xl border border-white/8 text-zinc-300 hover:bg-[#25272c] disabled:opacity-30"
-                            disabled={quantity === 0}
-                            type="button"
-                            title="Убрать"
-                            onClick={() => changeOrderQuantity(position.id, -1)}
-                          >
-                            <Minus className="size-4" />
-                          </button>
-                          <span
-                            className={`min-w-16 text-center text-sm font-semibold ${
-                              quantity > 0 ? "text-violet-300" : "text-zinc-600"
-                            }`}
-                          >
-                            {quantity > 0 ? formatOrderQuantity(position, quantity) : "—"}
-                          </span>
-                          <button
-                            className="grid size-8 place-items-center rounded-xl bg-zinc-100 text-zinc-950 hover:bg-white disabled:cursor-not-allowed disabled:opacity-30"
-                            disabled={!canAddMore}
-                            type="button"
-                            title={canAddMore ? "Добавить" : "Не хватает остатка"}
-                            onClick={() => changeOrderQuantity(position.id, 1)}
-                          >
-                            <Plus className="size-4" />
-                          </button>
-                        </div>
+                  groupedOrderPositions.map((group) => (
+                    <div key={group.id}>
+                      <div className="sticky top-12 z-10 bg-[#17181b] px-4 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                        {group.label}
                       </div>
-                    );
-                  })
+                      <div className="divide-y divide-white/8">
+                        {group.positions.map((position) => {
+                          const quantity = orderItems[position.id] ?? 0;
+                          const available = canSellMenuPosition(position);
+                          const canAddMore = canAddToOrder(position);
+                          return (
+                            <div
+                              key={position.id}
+                              className={`flex items-center gap-3 px-4 py-2 ${available ? "" : "opacity-55"}`}
+                            >
+                              <PositionThumb src={position.imageUrl} />
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-sm font-medium">{position.name}</p>
+                                <p className="text-xs text-zinc-500">
+                                  {formatMoney(parseNumber(position.price))} · {formatOrderQuantity(position, 1)}
+                                </p>
+                                <p className="truncate text-[11px] text-zinc-600">{describeComposition(position)}</p>
+                              </div>
+                              <div className="flex shrink-0 items-center gap-1">
+                                <button
+                                  className="grid size-8 place-items-center rounded-xl border border-white/8 text-zinc-300 hover:bg-[#25272c] disabled:opacity-30"
+                                  disabled={quantity === 0}
+                                  type="button"
+                                  title="Убрать"
+                                  onClick={() => changeOrderQuantity(position.id, -1)}
+                                >
+                                  <Minus className="size-4" />
+                                </button>
+                                <span
+                                  className={`min-w-16 text-center text-sm font-semibold ${
+                                    quantity > 0 ? "text-violet-300" : "text-zinc-600"
+                                  }`}
+                                >
+                                  {quantity > 0 ? formatOrderQuantity(position, quantity) : "—"}
+                                </span>
+                                <button
+                                  className="grid size-8 place-items-center rounded-xl bg-zinc-100 text-zinc-950 hover:bg-white disabled:cursor-not-allowed disabled:opacity-30"
+                                  disabled={!canAddMore}
+                                  type="button"
+                                  title={canAddMore ? "Добавить" : "Не хватает остатка"}
+                                  onClick={() => changeOrderQuantity(position.id, 1)}
+                                >
+                                  <Plus className="size-4" />
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))
                 )}
               </div>
             </div>
