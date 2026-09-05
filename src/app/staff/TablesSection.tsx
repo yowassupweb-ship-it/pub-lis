@@ -153,6 +153,14 @@ export default function TablesSection({ guests }: { guests: ApiUser[] }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [activeTableId, setActiveTableId] = useState<string | null>(null);
   const [bookingDraft, setBookingDraft] = useState({ guestName: "", start: "", end: "", comment: "" });
+  const [quickBookingDate, setQuickBookingDate] = useState<string | null>(null);
+  const [quickBookingDraft, setQuickBookingDraft] = useState({
+    tableId: "",
+    guestName: "",
+    start: "",
+    end: "",
+    comment: "",
+  });
   const [nowTick, setNowTick] = useState(() => new Date());
 
   useEffect(() => {
@@ -455,6 +463,31 @@ export default function TablesSection({ guests }: { guests: ApiUser[] }) {
     if (data) {
       setBookings((prev) => [...prev, data]);
       setBookingDraft({ guestName: "", start: "", end: "", comment: "" });
+    }
+  };
+
+  const openQuickBooking = (iso: string) => {
+    setQuickBookingDate(iso);
+    setQuickBookingDraft({ tableId: tables[0]?.id ?? "", guestName: "", start: "", end: "", comment: "" });
+  };
+
+  const submitQuickBooking = async () => {
+    if (!activeMapId || !quickBookingDate || !quickBookingDraft.tableId) return;
+    const guestName = quickBookingDraft.guestName.trim();
+    if (!guestName) return;
+    const matchedGuest = guests.find((g) => g.name.toLowerCase() === guestName.toLowerCase());
+    const { data } = await apiCreateTableBooking(activeMapId, {
+      table_id: quickBookingDraft.tableId,
+      booking_date: quickBookingDate,
+      time_start: quickBookingDraft.start || undefined,
+      time_end: quickBookingDraft.end || undefined,
+      guest_id: matchedGuest?.id,
+      guest_name: guestName,
+      comment: quickBookingDraft.comment.trim() || undefined,
+    });
+    if (data) {
+      setBookings((prev) => [...prev, data]);
+      setQuickBookingDate(null);
     }
   };
 
@@ -907,11 +940,18 @@ export default function TablesSection({ guests }: { guests: ApiUser[] }) {
                 const isSelected = iso === selectedDate;
                 const hasEvent = isEventDay(iso);
                 return (
-                  <button
+                  <div
                     key={iso}
-                    type="button"
+                    role="button"
+                    tabIndex={0}
                     onClick={() => setSelectedDate(iso)}
-                    className={`flex flex-col items-start gap-1 overflow-hidden rounded-xl border p-1.5 text-left transition ${
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setSelectedDate(iso);
+                      }
+                    }}
+                    className={`flex cursor-pointer flex-col items-start gap-1 overflow-hidden rounded-xl border p-1.5 text-left transition ${
                       isSelected
                         ? "border-violet-400 bg-violet-500/15"
                         : hasEvent
@@ -921,7 +961,22 @@ export default function TablesSection({ guests }: { guests: ApiUser[] }) {
                             : "border-white/5 bg-transparent opacity-40"
                     }`}
                   >
-                    <span className="text-xs font-medium">{day.getDate()}</span>
+                    <div className="flex w-full items-center justify-between">
+                      <span className="text-xs font-medium">{day.getDate()}</span>
+                      {activeMapId && tables.length > 0 && (
+                        <button
+                          type="button"
+                          title="Добавить бронь"
+                          className="grid size-4 shrink-0 place-items-center rounded-full text-zinc-500 hover:bg-white/10 hover:text-zinc-200"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openQuickBooking(iso);
+                          }}
+                        >
+                          <Plus className="size-3" />
+                        </button>
+                      )}
+                    </div>
                     <div className="flex w-full flex-col gap-0.5 overflow-hidden">
                       {items.slice(0, 2).map((item, i) => (
                         <span
@@ -935,7 +990,7 @@ export default function TablesSection({ guests }: { guests: ApiUser[] }) {
                       ))}
                       {items.length > 2 && <span className="text-[10px] text-zinc-500">+{items.length - 2}</span>}
                     </div>
-                  </button>
+                  </div>
                 );
               })}
             </div>
@@ -967,6 +1022,63 @@ export default function TablesSection({ guests }: { guests: ApiUser[] }) {
                 ))}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {quickBookingDate && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4" onClick={() => setQuickBookingDate(null)}>
+          <div
+            className="w-full max-w-sm space-y-3 rounded-xl border border-white/10 bg-[#1b1c20] p-4 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold">Новая бронь · {quickBookingDate}</h3>
+              <button
+                className="grid size-8 place-items-center rounded-lg text-zinc-500 hover:bg-[#25272c]"
+                type="button"
+                onClick={() => setQuickBookingDate(null)}
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+            <select
+              className="h-10 w-full rounded-xl border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
+              value={quickBookingDraft.tableId}
+              onChange={(e) => setQuickBookingDraft((d) => ({ ...d, tableId: e.target.value }))}
+            >
+              {tables.map((t) => (
+                <option key={t.id} value={t.id}>
+                  Стол {t.number} · {t.seats} мест
+                </option>
+              ))}
+            </select>
+            <input
+              className="h-10 w-full rounded-xl border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
+              placeholder="Имя гостя"
+              list="tables-guests-list"
+              value={quickBookingDraft.guestName}
+              onChange={(e) => setQuickBookingDraft((d) => ({ ...d, guestName: e.target.value }))}
+            />
+            <TimeRangeInput
+              start={quickBookingDraft.start}
+              end={quickBookingDraft.end}
+              onChange={(start, end) => setQuickBookingDraft((d) => ({ ...d, start, end }))}
+              className="h-10 w-full rounded-xl border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
+            />
+            <input
+              className="h-10 w-full rounded-xl border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
+              placeholder="Комментарий"
+              value={quickBookingDraft.comment}
+              onChange={(e) => setQuickBookingDraft((d) => ({ ...d, comment: e.target.value }))}
+            />
+            <button
+              className="h-10 w-full rounded-xl bg-zinc-100 text-sm font-medium text-zinc-950 hover:bg-white"
+              type="button"
+              onClick={submitQuickBooking}
+            >
+              Добавить бронь
+            </button>
           </div>
         </div>
       )}

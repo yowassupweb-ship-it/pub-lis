@@ -42,6 +42,7 @@ import {
   apiUpdateGuest,
   apiLogout,
   apiMe,
+  apiUploadImage,
   type ApiUser,
 } from "@/lib/api";
 import { PRODUCT_TYPES } from "@/lib/productTypes";
@@ -945,6 +946,8 @@ export default function StaffApp() {
   const [isProductModalOpen, setIsProductModalOpen] = useState(false);
   const [isPositionModalOpen, setIsPositionModalOpen] = useState(false);
   const [editingPositionId, setEditingPositionId] = useState<string | null>(null);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [imageUploadError, setImageUploadError] = useState<string | null>(null);
   const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
   const [orders, setOrders] = useState<OrderRecord[]>([]);
   const [orderCounter, setOrderCounter] = useState(0);
@@ -1720,6 +1723,18 @@ export default function StaffApp() {
     setEditingPositionId(position.id);
     setDraftPosition({ ...position, ingredients: position.ingredients.map((i) => ({ ...i })) });
     setIsPositionModalOpen(true);
+  };
+
+  const uploadPositionImage = async (file: File) => {
+    setIsUploadingImage(true);
+    setImageUploadError(null);
+    const { url, error } = await apiUploadImage(file);
+    setIsUploadingImage(false);
+    if (error || !url) {
+      setImageUploadError(error ?? "Не удалось загрузить фото");
+      return;
+    }
+    setDraftPosition((position) => ({ ...position, imageUrl: url }));
   };
 
   const saveMenuPosition = () => {
@@ -3583,13 +3598,38 @@ export default function StaffApp() {
                   }
                 />
               </Field>
-              <Field label="Фото, ссылка" hint="Картинка для карточки и кассы">
-                <input
-                  className="h-11 w-full rounded-xl border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
-                  placeholder="Фото URL"
-                  value={draftPosition.imageUrl}
-                  onChange={(event) => setDraftPosition((position) => ({ ...position, imageUrl: event.target.value }))}
-                />
+              <Field label="Фото" hint="Загрузите файл или вставьте ссылку">
+                <div className="flex items-center gap-3">
+                  {draftPosition.imageUrl && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      className="size-11 shrink-0 rounded-xl border border-white/8 object-cover"
+                      src={draftPosition.imageUrl}
+                      alt=""
+                    />
+                  )}
+                  <input
+                    className="h-11 w-full min-w-0 flex-1 rounded-xl border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
+                    placeholder="Фото URL"
+                    value={draftPosition.imageUrl}
+                    onChange={(event) => setDraftPosition((position) => ({ ...position, imageUrl: event.target.value }))}
+                  />
+                  <label className="flex h-11 shrink-0 cursor-pointer items-center gap-2 rounded-xl border border-white/8 px-3 text-sm text-zinc-300 hover:bg-[#25272c]">
+                    {isUploadingImage ? "Загрузка…" : "Загрузить"}
+                    <input
+                      className="hidden"
+                      type="file"
+                      accept="image/*"
+                      disabled={isUploadingImage}
+                      onChange={(event) => {
+                        const file = event.target.files?.[0];
+                        event.target.value = "";
+                        if (file) uploadPositionImage(file);
+                      }}
+                    />
+                  </label>
+                </div>
+                {imageUploadError && <p className="mt-1 text-xs text-rose-400">{imageUploadError}</p>}
               </Field>
               <Field label="Раздел" hint="К какому разделу меню относится позиция">
                 <DarkSelect

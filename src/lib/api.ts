@@ -427,6 +427,24 @@ export const apiCreateEvent = (payload: EventCreatePayload) =>
 export const apiDeleteEvent = (eventId: string) =>
   requestWithError<null>(`/events/${eventId}`, { method: "DELETE" });
 
+// Загрузка картинки (сейчас — фото позиций меню). Без Content-Type: json —
+// браузер сам проставит multipart-boundary для FormData.
+export const apiUploadImage = async (file: File): Promise<{ url: string | null; error: string | null }> => {
+  try {
+    const form = new FormData();
+    form.append("file", file);
+    const res = await fetch("/api/uploads/image", { method: "POST", credentials: "include", body: form });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) {
+      const detail = body && typeof body.detail === "string" ? body.detail : `Ошибка (${res.status})`;
+      return { url: null, error: detail };
+    }
+    return { url: body?.url ?? null, error: null };
+  } catch {
+    return { url: null, error: "Сервер недоступен" };
+  }
+};
+
 export const apiGame = (gameId: string) => request<ApiGame>(`/games/${gameId}`);
 
 export const apiGames = (from: string, to: string) =>
