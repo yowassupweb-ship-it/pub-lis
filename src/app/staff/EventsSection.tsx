@@ -102,10 +102,15 @@ export default function EventsSection() {
     if (!apiError) setEvents((prev) => prev.filter((e) => e.id !== event.id));
   };
 
+  const selectDay = (iso: string) => {
+    setDateFrom(iso);
+    setDateTo(iso);
+  };
+
   return (
-    <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
-      <section className="rounded-xl border border-white/8 bg-[#1b1c20] p-3">
-        <div className="mb-2 flex items-center justify-between">
+    <div className="grid h-full min-h-0 gap-4 lg:grid-cols-[1fr_360px]">
+      <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-white/8 bg-[#1b1c20] p-3">
+        <div className="mb-2 flex shrink-0 items-center justify-between">
           <button
             className="grid size-8 place-items-center rounded-lg text-zinc-400 hover:bg-[#25272c]"
             type="button"
@@ -124,26 +129,31 @@ export default function EventsSection() {
             <ChevronRight className="size-4" />
           </button>
         </div>
-        <div className="grid grid-cols-7 gap-1 pb-2 text-center text-xs uppercase tracking-wide text-zinc-500">
+        <div className="grid shrink-0 grid-cols-7 gap-1 pb-2 text-center text-xs uppercase tracking-wide text-zinc-500">
           {WEEKDAYS.map((d) => (
             <span key={d}>{d}</span>
           ))}
         </div>
-        <div className="grid grid-cols-7 gap-1">
+        <div className="grid flex-1 auto-rows-fr grid-cols-7 gap-1">
           {calendarDays.map((day) => {
             const iso = isoDate(day);
             const dayEvents = eventsForDay(iso);
             const inMonth = day.getMonth() === cursorMonth.getMonth();
             const hasEvent = dayEvents.length > 0;
+            const isSelected = iso === dateFrom && iso === dateTo;
             return (
-              <div
+              <button
                 key={iso}
-                className={`flex min-h-16 flex-col items-start gap-1 rounded-xl border p-1.5 text-left ${
-                  hasEvent
-                    ? "border-fuchsia-400 bg-fuchsia-500/20"
-                    : inMonth
-                      ? "border-white/8 bg-[#111214]"
-                      : "border-white/5 bg-transparent opacity-40"
+                type="button"
+                onClick={() => selectDay(iso)}
+                className={`flex flex-col items-start gap-1 overflow-hidden rounded-xl border p-1.5 text-left transition ${
+                  isSelected
+                    ? "border-violet-400 bg-violet-500/15"
+                    : hasEvent
+                      ? "border-fuchsia-400 bg-fuchsia-500/20"
+                      : inMonth
+                        ? "border-white/8 bg-[#111214] hover:bg-[#17181b]"
+                        : "border-white/5 bg-transparent opacity-40"
                 }`}
               >
                 <span className="text-xs font-medium">{day.getDate()}</span>
@@ -152,13 +162,13 @@ export default function EventsSection() {
                     {e.name}
                   </span>
                 ))}
-              </div>
+              </button>
             );
           })}
         </div>
       </section>
 
-      <section className="flex flex-col gap-4">
+      <section className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto">
         <div className="rounded-xl border border-white/8 bg-[#1b1c20] p-4">
           <h3 className="mb-3 font-semibold">Новое мероприятие</h3>
           <div className="space-y-2">

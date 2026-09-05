@@ -18,7 +18,7 @@ type Order = {
   completedAt?: string | null;
   items: OrderLine[];
   status: "active" | "completed" | "cancelled";
-  kitchenStatus: "new" | "accepted" | "done";
+  kitchenStatus: "new" | "accepted" | "ready" | "done";
   route?: "kitchen" | "self";
 };
 
@@ -137,8 +137,14 @@ export default function ChefDisplay() {
     setOrders(next);
   };
 
-  const markReady = (order: Order) => {
+  // Готово — блюдо приготовлено, но заказ остаётся на экране до фактической
+  // выдачи. В архив (историю) уходит только после «Отдано».
+  const markCookingDone = (order: Order) => {
     playReadyChime();
+    updateOrder(order, { kitchenStatus: "ready" });
+  };
+
+  const markServed = (order: Order) => {
     updateOrder(order, {
       kitchenStatus: "done",
       status: "completed",
@@ -223,13 +229,17 @@ export default function ChefDisplay() {
             {activeOrders.map((order) => {
               const elapsed = nowTick - new Date(order.createdAt).getTime();
               const isNew = order.kitchenStatus === "new";
+              const isReady = order.kitchenStatus === "ready";
+              const borderColor = isNew ? "border-amber-400" : isReady ? "border-emerald-500" : "border-sky-500";
               return (
-                <div
-                  key={order.id}
-                  className={`border-l-4 bg-zinc-950 p-4 ${isNew ? "border-amber-400" : "border-emerald-500"}`}
-                >
+                <div key={order.id} className={`border-l-4 bg-zinc-950 p-4 ${borderColor}`}>
                   <div className="mb-2 flex items-center justify-between border-b border-zinc-800 pb-2">
                     <span className="text-xl font-bold">#{order.number}</span>
+                    {isReady && (
+                      <span className="rounded bg-emerald-500/20 px-2 py-0.5 text-xs font-bold uppercase text-emerald-400">
+                        Готово · ждёт выдачи
+                      </span>
+                    )}
                     <span className={`tabular-nums text-sm ${elapsed > 15 * 60_000 ? "text-rose-400" : "text-zinc-400"}`}>
                       {formatDuration(elapsed)}
                     </span>
@@ -259,11 +269,19 @@ export default function ChefDisplay() {
                     >
                       Принять
                     </button>
+                  ) : isReady ? (
+                    <button
+                      className="mt-3 h-11 w-full bg-sky-500 text-sm font-bold uppercase tracking-wide text-black hover:bg-sky-400"
+                      type="button"
+                      onClick={() => markServed(order)}
+                    >
+                      Отдано
+                    </button>
                   ) : (
                     <button
                       className="mt-3 h-11 w-full bg-emerald-500 text-sm font-bold uppercase tracking-wide text-black hover:bg-emerald-400"
                       type="button"
-                      onClick={() => markReady(order)}
+                      onClick={() => markCookingDone(order)}
                     >
                       Готово
                     </button>

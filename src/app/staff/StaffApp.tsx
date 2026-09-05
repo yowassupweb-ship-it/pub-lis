@@ -21,6 +21,7 @@ import {
   Plus,
   Search,
   Settings,
+  Terminal,
   ShoppingCart,
   Trash2,
   User,
@@ -36,6 +37,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   STAFF_ROLES,
+  apiAuditEvents,
   apiCreateGuest,
   apiDeleteGuest,
   apiGuests,
@@ -43,6 +45,7 @@ import {
   apiLogout,
   apiMe,
   apiUploadImage,
+  type ApiAuditEvent,
   type ApiUser,
 } from "@/lib/api";
 import { PRODUCT_TYPES } from "@/lib/productTypes";
@@ -59,7 +62,8 @@ type ActiveSection =
   | "shift"
   | "finance"
   | "events"
-  | "stats";
+  | "stats"
+  | "audit";
 type WarehouseTab = "purchases" | "products" | "write-offs";
 
 type ParsedItem = {
@@ -140,7 +144,7 @@ type OrderRecord = {
   items: OrderLineRecord[];
   total: number;
   status: "active" | "completed" | "cancelled";
-  kitchenStatus: "new" | "accepted" | "done";
+  kitchenStatus: "new" | "accepted" | "ready" | "done";
   route: "kitchen" | "self";
   guestId: string | null;
   guestName: string | null;
@@ -166,6 +170,11 @@ type MenuPosition = {
 };
 
 type MenuCategory = { id: string; name: string };
+
+// Действия без бэкенда (позиции/разделы меню — чисто клиентские сущности):
+// когда позицию удаляют, от неё не остаётся следа, поэтому пишем в журнал
+// явно, в момент действия, а не выводим из текущего состояния.
+type ClientLogEntry = { id: string; at: string; text: string };
 const uncategorizedCategoryId = "__uncategorized__";
 
 type ProductSeed = {
@@ -203,6 +212,7 @@ const navItems = [
   { id: "finance", label: "Финансы", icon: CircleDollarSign, enabled: true },
   { id: "stats", label: "Статистика", icon: BarChart3, enabled: true },
   { id: "events", label: "Мероприятия", icon: PartyPopper, enabled: true },
+  { id: "audit", label: "Действия", icon: Terminal, enabled: true },
   { id: "settings", label: "Настройки", icon: Settings, enabled: false },
 ];
 
@@ -216,6 +226,7 @@ const SECTION_TITLES: Record<string, string> = {
   stats: "Статистика",
   events: "Мероприятия",
   warehouse: "Склад",
+  audit: "Действия",
 };
 
 const productTypes: ProductType[] = PRODUCT_TYPES;
@@ -530,6 +541,7 @@ const ordersStorageKey = "hitry-lis-orders";
 const orderCounterStorageKey = "hitry-lis-order-counter";
 const writeOffsStorageKey = "hitry-lis-write-offs";
 const shiftNotesStorageKey = "hitry-lis-shift-notes";
+const clientLogStorageKey = "hitry-lis-client-log";
 const menuCategoriesStorageKey = "hitry-lis-menu-categories";
 
 function normalizeName(name: string) {
@@ -909,6 +921,7 @@ export default function StaffApp() {
         "finance",
         "stats",
         "events",
+        "audit",
       ] as ActiveSection[]
     ).includes(slug as ActiveSection)
       ? (slug as ActiveSection)
@@ -947,6 +960,11 @@ export default function StaffApp() {
   const [isPositionModalOpen, setIsPositionModalOpen] = useState(false);
   const [editingPositionId, setEditingPositionId] = useState<string | null>(null);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [auditEvents, setAuditEvents] = useState<ApiAuditEvent[]>([]);
+  const [clientLog, setClientLog] = useState<ClientLogEntry[]>([]);
+  const logAction = (text: string) => {
+    setClientLog((prev) => [{ id: newId(), at: new Date().toISOString(), text }, ...prev].slice(0, 2000));
+  };
   const [imageUploadError, setImageUploadError] = useState<string | null>(null);
   const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
   const [orders, setOrders] = useState<OrderRecord[]>([]);
@@ -1095,11 +1113,13 @@ export default function StaffApp() {
       const savedWriteOffs = window.localStorage.getItem(writeOffsStorageKey);
       const savedShiftNotes = window.localStorage.getItem(shiftNotesStorageKey);
       const savedCategories = window.localStorage.getItem(menuCategoriesStorageKey);
+      const savedClientLog = window.localStorage.getItem(clientLogStorageKey);
       if (savedOrders) setOrders(JSON.parse(savedOrders) as OrderRecord[]);
       if (savedCounter) setOrderCounter(Number(savedCounter) || 0);
       if (savedWriteOffs) setWriteOffs(JSON.parse(savedWriteOffs) as WriteOffRecord[]);
       if (savedShiftNotes) setShiftNotes(savedShiftNotes);
       if (savedCategories) setMenuCategories(JSON.parse(savedCategories) as MenuCategory[]);
+      if (savedClientLog) setClientLog(JSON.parse(savedClientLog) as ClientLogEntry[]);
     });
   }, []);
 
@@ -1132,6 +1152,11 @@ export default function StaffApp() {
   }, [shiftNotes]);
 
   useEffect(() => {
+    if (!isStorageReady.current) return;
+    window.localStorage.setItem(clientLogStorageKey, JSON.stringify(clientLog));
+  }, [clientLog]);
+
+  useEffect(() => {
     if (lastOrderNumber === null) return;
     const timer = setTimeout(() => setLastOrderNumber(null), 3000);
     return () => clearTimeout(timer);
@@ -1141,6 +1166,11 @@ export default function StaffApp() {
     const timer = setInterval(() => setNowTick(Date.now()), 1000);
     return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (activeSection !== "audit") return;
+    apiAuditEvents(1000).then((list) => setAuditEvents(list ?? []));
+  }, [activeSection]);
 
   // Повар (/chef-display) меняет статусы заказов в том же localStorage —
   // подхватываем это здесь, иначе таймер в «Заказах» не остановится, когда
@@ -1779,6 +1809,12 @@ export default function StaffApp() {
     setIsPositionModalOpen(true);
   };
 
+  const deletePosition = (position: MenuPosition) => {
+    if (!window.confirm(`Удалить позицию «${position.name}»?`)) return;
+    setMenuPositions((prev) => prev.filter((p) => p.id !== position.id));
+    logAction(`удалил позицию «${position.name}»`);
+  };
+
   const uploadPositionImage = async (file: File) => {
     setIsUploadingImage(true);
     setImageUploadError(null);
@@ -1808,11 +1844,13 @@ export default function StaffApp() {
             : item,
         ),
       );
+      logAction(`изменил позицию «${draftPosition.name.trim()}»`);
     } else {
       setMenuPositions((items) => [
         { ...draftPosition, id: newId(), name: draftPosition.name.trim(), ingredients },
         ...items,
       ]);
+      logAction(`создал позицию «${draftPosition.name.trim()}»`);
     }
     setEditingPositionId(null);
     setDraftPosition(createBlankPosition());
@@ -1824,6 +1862,7 @@ export default function StaffApp() {
     if (!name) return;
     setMenuCategories((prev) => [...prev, { id: newId(), name }]);
     setNewCategoryName("");
+    logAction(`создал раздел меню «${name}»`);
   };
 
   const startRenameCategory = (category: MenuCategory) => {
@@ -1839,6 +1878,7 @@ export default function StaffApp() {
     }
     setMenuCategories((prev) => prev.map((c) => (c.id === editingCategoryId ? { ...c, name } : c)));
     setEditingCategoryId(null);
+    logAction(`переименовал раздел меню в «${name}»`);
   };
 
   const deleteCategory = (category: MenuCategory) => {
@@ -1848,6 +1888,7 @@ export default function StaffApp() {
       prev.map((position) => (position.categoryId === category.id ? { ...position, categoryId: null } : position)),
     );
     if (activeCategoryId === category.id) setActiveCategoryId("all");
+    logAction(`удалил раздел меню «${category.name}»`);
   };
 
   const canSellMenuPosition = (position: MenuPosition) => hasEnoughStock(position.ingredients);
@@ -1897,7 +1938,19 @@ export default function StaffApp() {
 
     if (!writeOffIngredients(orderIngredients)) return;
 
-    const number = orderCounter + 1;
+    // Номер берём из самых свежих данных localStorage, а не из React-состояния:
+    // если два заказа создаются почти одновременно с разных вкладок/экранов,
+    // оба могут прочитать один и тот же устаревший orderCounter и получить
+    // одинаковый номер. Читаем и сразу же пишем — окно гонки схлопывается
+    // до одной синхронной операции в текущей вкладке.
+    const freshOrdersRaw = window.localStorage.getItem(ordersStorageKey);
+    let freshOrders: OrderRecord[] = [];
+    try {
+      freshOrders = freshOrdersRaw ? (JSON.parse(freshOrdersRaw) as OrderRecord[]) : [];
+    } catch {
+      freshOrders = [];
+    }
+    const number = Math.max(0, orderCounter, ...freshOrders.map((o) => o.number)) + 1;
     const order: OrderRecord = {
       id: newId(),
       number,
@@ -1927,7 +1980,7 @@ export default function StaffApp() {
       guestId: orderGuest?.id ?? null,
       guestName: orderGuest?.name ?? null,
     };
-    setOrders((prev) => [order, ...prev]);
+    setOrders([order, ...freshOrders]);
     setOrderCounter(number);
     setLastOrderNumber(number);
     setOrderItems({});
@@ -1941,9 +1994,12 @@ export default function StaffApp() {
     if (!window.confirm(`Отменить заказ №${order.number}? Списанные продукты вернутся на склад.`)) return;
     restoreIngredientsToStock(order.items.flatMap((item) => item.ingredients));
     setOrders((prev) => prev.map((o) => (o.id === order.id ? { ...o, status: "cancelled" } : o)));
+    logAction(`отменил заказ №${order.number}, продукты возвращены на склад`);
   };
 
   const markOrderDone = (order: OrderRecord) => {
+    // Не логируем отдельно — попадёт в журнал через сам факт completedAt
+    // у заказа (activityFeed берёт его из orders[], без дублей с кухней).
     setOrders((prev) =>
       prev.map((o) => (o.id === order.id ? { ...o, status: "completed", completedAt: new Date().toISOString() } : o)),
     );
@@ -1963,12 +2019,83 @@ export default function StaffApp() {
   const saveOrderEdit = () => {
     if (!editingOrderId) return;
     const total = orderEditItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
+    const editedOrder = orders.find((o) => o.id === editingOrderId);
     setOrders((prev) =>
       prev.map((o) => (o.id === editingOrderId ? { ...o, items: orderEditItems, total } : o)),
     );
+    if (editedOrder) logAction(`изменил заказ №${editedOrder.number}`);
     setEditingOrderId(null);
     setOrderEditItems([]);
   };
+
+  // Журнал действий: серверные log_event (гости/столы/мероприятия/аккаунты/
+  // вход) + клиентские факты (заказы, списания), которых на бэке нет —
+  // склад/заказы полностью локальные. Общий вид: [время] кто · что.
+  const AUDIT_ACTION_LABELS: Record<string, string> = {
+    "auth.login": "вход в систему",
+    "guest.create": "создал гостя",
+    "guest.update": "изменил гостя",
+    "guest.delete": "удалил гостя",
+    "floor_map.create": "создал карту зала",
+    "floor_map.update_layout": "изменил карту зала",
+    "floor_map.delete": "удалил карту зала",
+    "table_booking.create": "создал бронь стола",
+    "table_booking.update": "изменил бронь стола",
+    "table_booking.delete": "удалил бронь стола",
+    "event.create": "создал мероприятие",
+    "event.delete": "удалил мероприятие",
+    "user.create": "создал аккаунт",
+    "user.update": "изменил аккаунт",
+    "sessions.revoke": "отозвал сессии",
+  };
+
+  type ActivityEntry = { id: string; at: string; text: string };
+  const activityFeed: ActivityEntry[] = [
+    ...auditEvents.map((e): ActivityEntry => ({
+      id: e.id,
+      at: e.created_at,
+      text: `${e.actor_name ?? "—"} · ${AUDIT_ACTION_LABELS[e.action] ?? e.action}${
+        e.entity_id ? ` #${shortId(e.entity_id)}` : ""
+      }`,
+    })),
+    ...orders.map((o): ActivityEntry => ({
+      id: `order-created-${o.id}`,
+      at: o.createdAt,
+      text: `заказ №${o.number} создан (${o.route === "self" ? "самостоятельно" : "кухня"}), ${formatMoney(o.total)}`,
+    })),
+    ...orders
+      .filter((o) => o.status === "completed" && o.completedAt)
+      .map((o): ActivityEntry => ({
+        id: `order-done-${o.id}`,
+        at: o.completedAt as string,
+        text: `заказ №${o.number} выполнен`,
+      })),
+    ...writeOffs.map((w): ActivityEntry => ({
+      id: `writeoff-${w.id}`,
+      at: w.createdAt,
+      text: `списание: ${w.productName} −${formatAmount(w.amount)} ${w.unit} (${w.reason})${
+        w.value > 0 ? ` −${formatMoney(w.value)}` : ""
+      }`,
+    })),
+    ...purchases.map((p): ActivityEntry => ({
+      id: `purchase-${p.id}`,
+      at: `${p.receivedAt}T12:00:00`,
+      text: `закупка #${shortId(p.id)}: ${p.itemCount} позиций, ${formatMoney(p.total)}`,
+    })),
+    ...clientLog.map((entry): ActivityEntry => ({
+      id: `client-log-${entry.id}`,
+      at: entry.at,
+      text: entry.text,
+    })),
+  ].sort((a, b) => b.at.localeCompare(a.at));
+
+  const activityByDay = new Map<string, ActivityEntry[]>();
+  for (const entry of activityFeed) {
+    const day = entry.at.slice(0, 10);
+    const list = activityByDay.get(day) ?? [];
+    list.push(entry);
+    activityByDay.set(day, list);
+  }
 
   if (authState === "loading") {
     return (
@@ -2165,7 +2292,17 @@ export default function StaffApp() {
           </div>
 
           <div
-            className={`flex-1 space-y-4 overflow-y-auto p-4 md:p-6 ${activeSection === "tables" ? "hidden" : ""}`}
+            className={`min-h-0 flex-1 flex-col overflow-hidden p-4 md:p-6 ${
+              activeSection === "events" ? "flex" : "hidden"
+            }`}
+          >
+            <EventsSection />
+          </div>
+
+          <div
+            className={`flex-1 space-y-4 overflow-y-auto p-4 md:p-6 ${
+              activeSection === "tables" || activeSection === "events" ? "hidden" : ""
+            }`}
           >
             {activeSection === "orders" && (
               <section className="rounded-xl border border-white/8 bg-[#1b1c20]">
@@ -2239,18 +2376,18 @@ export default function StaffApp() {
                             </button>
                           )}
                           <div className="min-w-0 flex-1">
-                            <p className="font-medium">
-                              Заказ №{order.number}
-                              <span className="ml-2 text-xs font-normal text-zinc-500">
+                            <p className="flex flex-wrap items-center gap-x-2 gap-y-1 font-medium">
+                              <span>Заказ №{order.number}</span>
+                              <span className="text-xs font-normal text-zinc-500">
                                 {new Date(order.createdAt).toLocaleString("ru-RU")}
                               </span>
                               {order.guestName && (
-                                <span className="ml-2 rounded-full bg-white/8 px-2 py-0.5 text-[10px] text-zinc-300">
+                                <span className="rounded-full bg-white/8 px-2 py-0.5 text-[10px] text-zinc-300">
                                   {order.guestName}
                                 </span>
                               )}
                               <span
-                                className={`ml-2 rounded-full px-2 py-0.5 text-[10px] ${
+                                className={`rounded-full px-2 py-0.5 text-[10px] ${
                                   order.route === "self"
                                     ? "bg-white/8 text-zinc-400"
                                     : "bg-amber-500/15 text-amber-300"
@@ -2365,8 +2502,6 @@ export default function StaffApp() {
               </div>
             )}
 
-            {activeSection === "events" && <EventsSection />}
-
             {activeSection === "stats" && (
               <div className="space-y-4">
                 <section className="rounded-xl border border-white/8 bg-[#1b1c20] p-4">
@@ -2437,7 +2572,42 @@ export default function StaffApp() {
               </div>
             )}
 
-            {activeSection !== "tables" && activeSection !== "orders" && activeSection !== "shift" && activeSection !== "finance" && activeSection !== "events" && activeSection !== "stats" && (
+            {activeSection === "audit" && (
+              <div className="space-y-4 font-mono">
+                {activityByDay.size === 0 ? (
+                  <p className="text-sm text-zinc-500">Пока нет действий</p>
+                ) : (
+                  [...activityByDay.entries()].map(([day, entries]) => (
+                    <section key={day} className="rounded-xl border border-white/8 bg-[#1b1c20]">
+                      <div className="border-b border-white/8 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                        {new Date(`${day}T12:00:00`).toLocaleDateString("ru-RU", {
+                          day: "2-digit",
+                          month: "2-digit",
+                          year: "numeric",
+                          weekday: "short",
+                        })}
+                      </div>
+                      <div className="divide-y divide-white/5">
+                        {entries.map((entry) => (
+                          <div key={entry.id} className="flex gap-3 px-4 py-1.5 text-xs">
+                            <span className="shrink-0 text-zinc-600">
+                              {new Date(entry.at).toLocaleTimeString("ru-RU", {
+                                hour: "2-digit",
+                                minute: "2-digit",
+                                second: "2-digit",
+                              })}
+                            </span>
+                            <span className="text-zinc-300">{entry.text}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  ))
+                )}
+              </div>
+            )}
+
+            {activeSection !== "tables" && activeSection !== "orders" && activeSection !== "shift" && activeSection !== "finance" && activeSection !== "events" && activeSection !== "stats" && activeSection !== "audit" && (
             <>
             <section className="flex flex-wrap items-center justify-between gap-3">
               {activeSection === "warehouse" ? (
@@ -2633,6 +2803,14 @@ export default function StaffApp() {
                             onClick={() => openEditPosition(position)}
                           >
                             <Pencil className="size-4" />
+                          </button>
+                          <button
+                            className="grid size-8 shrink-0 place-items-center rounded-xl border border-white/8 text-zinc-400 hover:bg-[#25272c] hover:text-rose-400"
+                            type="button"
+                            title="Удалить"
+                            onClick={() => deletePosition(position)}
+                          >
+                            <Trash2 className="size-4" />
                           </button>
                         </div>
                       );

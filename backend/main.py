@@ -47,7 +47,7 @@ def _humanize(err: dict) -> str:
         msg = "некорректный адрес"
     return f"{label}: {msg}" if label else msg
 
-from routers import auth, events, games, guests, quests, tables, uploads, users
+from routers import audit, auth, events, games, guests, quests, tables, uploads, users
 
 MEDIA_DIR = Path(__file__).resolve().parent / "uploads"
 (MEDIA_DIR / "avatars").mkdir(parents=True, exist_ok=True)
@@ -83,6 +83,7 @@ app.include_router(guests.router)
 app.include_router(tables.router)
 app.include_router(events.router)
 app.include_router(uploads.router)
+app.include_router(audit.router)
 
 
 @app.get("/api/health")

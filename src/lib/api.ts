@@ -454,6 +454,21 @@ export const apiUploadImage = async (file: File): Promise<{ url: string | null; 
   }
 };
 
+// ── Журнал действий («Действия») ────────────────────────────────────────
+
+export type ApiAuditEvent = {
+  id: string;
+  actor_id: string | null;
+  actor_name: string | null;
+  action: string;
+  entity: string;
+  entity_id: string | null;
+  payload: Record<string, unknown>;
+  created_at: string;
+};
+
+export const apiAuditEvents = (limit = 500) => request<ApiAuditEvent[]>(`/audit-events?limit=${limit}`);
+
 export const apiGame = (gameId: string) => request<ApiGame>(`/games/${gameId}`);
 
 export const apiGames = (from: string, to: string) =>

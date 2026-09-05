@@ -289,3 +289,17 @@ class EventCreate(BaseModel):
     participants_count: int = Field(ge=0, le=10000)
     date_from: date
     date_to: date
+
+
+# ── Журнал действий (вкладка «Действия») ────────────────────────────────────
+
+
+class AuditEventOut(BaseModel):
+    id: uuid.UUID
+    actor_id: uuid.UUID | None
+    actor_name: str | None
+    action: str
+    entity: str
+    entity_id: uuid.UUID | None
+    payload: dict
+    created_at: datetime
