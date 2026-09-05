@@ -680,7 +680,7 @@ function parsePurchaseText(text: string): ParsedItem[] {
     if (!name || !/[a-zа-яё]/i.test(name)) return;
 
     items.push({
-      id: crypto.randomUUID(),
+      id: newId(),
       name,
       quantity: parsedQuantity || "1",
       unit: parsedUnit,
@@ -757,6 +757,16 @@ function formatMoney(value: number | null) {
     currency: "RUB",
     maximumFractionDigits: value % 1 === 0 ? 0 : 2,
   }).format(value);
+}
+
+// crypto.randomUUID() требует secure context (HTTPS/localhost) — на голом
+// HTTP по IP (демо без домена) его нет вообще, и без этого падало создание
+// заказов/позиций/etc. Тут просто нужен уникальный id, не крипто-стойкий UUID.
+function newId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 function formatDuration(ms: number) {
@@ -1513,7 +1523,7 @@ export default function StaffApp() {
     const unitPrice = getBatchUnitPrice(product, batch) ?? 0;
     setWriteOffs((prev) => [
       {
-        id: crypto.randomUUID(),
+        id: newId(),
         createdAt: new Date().toISOString(),
         productName: product.name,
         batchId: batch.id,
@@ -1539,7 +1549,7 @@ export default function StaffApp() {
 
     const normalizedName = normalizeName(item.name);
     const batch: StockBatch = {
-      id: crypto.randomUUID(),
+      id: newId(),
       packs,
       remainingAmount: packs * packageSize,
       totalPrice: item.totalPrice,
@@ -1562,7 +1572,7 @@ export default function StaffApp() {
         existing.batches = [batch, ...existing.batches];
       } else {
         nextProducts.push({
-          id: crypto.randomUUID(),
+          id: newId(),
           name: item.name.trim(),
           normalizedName,
           typeId: item.typeId || "type-misc",
@@ -1584,7 +1594,7 @@ export default function StaffApp() {
 
     parsedItems.forEach(addProductBatch);
     setPurchases((items) => [
-      { id: crypto.randomUUID(), receivedAt, itemCount: parsedItems.length, total: purchaseTotal },
+      { id: newId(), receivedAt, itemCount: parsedItems.length, total: purchaseTotal },
       ...items,
     ]);
     setRawText("");
@@ -1607,7 +1617,7 @@ export default function StaffApp() {
       const batch =
         packs > 0 && packageSize > 0
           ? {
-              id: crypto.randomUUID(),
+              id: newId(),
               packs,
               remainingAmount: packs * packageSize,
               totalPrice: null,
@@ -1630,7 +1640,7 @@ export default function StaffApp() {
         }
       } else {
         nextProducts.push({
-          id: crypto.randomUUID(),
+          id: newId(),
           name: newProduct.name.trim(),
           normalizedName,
           typeId: newProduct.typeId || "type-misc",
@@ -1655,7 +1665,7 @@ export default function StaffApp() {
   const addIngredientRow = () => {
     setDraftPosition((position) => ({
       ...position,
-      ingredients: [...position.ingredients, { id: crypto.randomUUID(), typeId: "", amount: "" }],
+      ingredients: [...position.ingredients, { id: newId(), typeId: "", amount: "" }],
     }));
   };
 
@@ -1731,7 +1741,7 @@ export default function StaffApp() {
       );
     } else {
       setMenuPositions((items) => [
-        { ...draftPosition, id: crypto.randomUUID(), name: draftPosition.name.trim(), ingredients },
+        { ...draftPosition, id: newId(), name: draftPosition.name.trim(), ingredients },
         ...items,
       ]);
     }
@@ -1743,7 +1753,7 @@ export default function StaffApp() {
   const createCategory = () => {
     const name = newCategoryName.trim();
     if (!name) return;
-    setMenuCategories((prev) => [...prev, { id: crypto.randomUUID(), name }]);
+    setMenuCategories((prev) => [...prev, { id: newId(), name }]);
     setNewCategoryName("");
   };
 
@@ -1794,7 +1804,7 @@ export default function StaffApp() {
 
     const number = orderCounter + 1;
     const order: OrderRecord = {
-      id: crypto.randomUUID(),
+      id: newId(),
       number,
       createdAt: new Date().toISOString(),
       items: orderLines.map((line) => ({
