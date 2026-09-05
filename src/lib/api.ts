@@ -409,9 +409,18 @@ export type ApiEvent = {
   participants_count: number;
   date_from: string;
   date_to: string;
+  time_from: string;
+  time_to: string;
 };
 
-export type EventCreatePayload = { name: string; participants_count: number; date_from: string; date_to: string };
+export type EventCreatePayload = {
+  name: string;
+  participants_count: number;
+  date_from: string;
+  date_to: string;
+  time_from: string;
+  time_to: string;
+};
 
 export const apiEvents = (dateFrom?: string, dateTo?: string) => {
   const qs = new URLSearchParams();

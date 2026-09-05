@@ -30,6 +30,8 @@ export default function EventsSection() {
   const [participants, setParticipants] = useState("");
   const [dateFrom, setDateFrom] = useState(() => isoDate(new Date()));
   const [dateTo, setDateTo] = useState(() => isoDate(new Date()));
+  const [timeFrom, setTimeFrom] = useState("15:00");
+  const [timeTo, setTimeTo] = useState("23:00");
   const [error, setError] = useState<string | null>(null);
 
   const cursorMonth = new Date(`${cursor}T12:00:00`);
@@ -72,11 +74,17 @@ export default function EventsSection() {
       setError("Дата окончания раньше даты начала");
       return;
     }
+    if (!timeFrom || !timeTo) {
+      setError("Укажите часы мероприятия");
+      return;
+    }
     const { data, error: apiError } = await apiCreateEvent({
       name: trimmed,
       participants_count: count,
       date_from: dateFrom,
       date_to: dateTo,
+      time_from: timeFrom,
+      time_to: timeTo,
     });
     if (apiError || !data) {
       setError(apiError ?? "Не удалось создать мероприятие");
@@ -182,6 +190,21 @@ export default function EventsSection() {
                 onChange={(e) => setDateTo(e.target.value)}
               />
             </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="time"
+                className="h-10 min-w-0 flex-1 rounded-xl border border-white/8 bg-[#111214] px-2 text-sm outline-none focus:border-zinc-400"
+                value={timeFrom}
+                onChange={(e) => setTimeFrom(e.target.value)}
+              />
+              <span className="text-zinc-500">—</span>
+              <input
+                type="time"
+                className="h-10 min-w-0 flex-1 rounded-xl border border-white/8 bg-[#111214] px-2 text-sm outline-none focus:border-zinc-400"
+                value={timeTo}
+                onChange={(e) => setTimeTo(e.target.value)}
+              />
+            </div>
             {error && <p className="text-sm text-rose-400">{error}</p>}
             <button
               className="h-10 w-full rounded-xl bg-zinc-100 text-sm font-medium text-zinc-950 hover:bg-white"
@@ -208,7 +231,8 @@ export default function EventsSection() {
                   <div className="min-w-0 flex-1">
                     <p className="truncate font-medium">{e.name}</p>
                     <p className="text-xs text-zinc-500">
-                      {e.date_from === e.date_to ? e.date_from : `${e.date_from} — ${e.date_to}`} · {e.participants_count} чел.
+                      {e.date_from === e.date_to ? e.date_from : `${e.date_from} — ${e.date_to}`}, {e.time_from}–{e.time_to} ·{" "}
+                      {e.participants_count} чел.
                     </p>
                   </div>
                   <button

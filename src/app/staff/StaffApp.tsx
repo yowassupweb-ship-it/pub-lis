@@ -129,7 +129,7 @@ type OrderLineRecord = {
   quantity: number;
   price: number;
   comment?: string;
-  ingredients: { name: string; amount: string }[];
+  ingredients: { name: string; amount: string; typeId: string; rawAmount: number }[];
 };
 
 type OrderRecord = {
@@ -1449,6 +1449,17 @@ export default function StaffApp() {
     return candidates.find((id) => getTypeAvailableAmount(id) + epsilon >= amount) ?? ingredient.typeId;
   };
 
+  // Читаемый состав порции — чтобы бармен мог назвать его гостю прямо во время заказа
+  const describeComposition = (position: MenuPosition) =>
+    position.ingredients
+      .map((ingredient) => {
+        const type = getProductType(resolveIngredientTypeId(ingredient));
+        if (!type) return null;
+        return `${type.name} ${formatAmount(parseNumber(ingredient.amount))} ${type.unit}`;
+      })
+      .filter(Boolean)
+      .join(", ");
+
   const collectRequirements = (ingredients: MenuIngredient[]) => {
     const required = new Map<string, number>();
     for (const ingredient of ingredients) {
@@ -1497,6 +1508,49 @@ export default function StaffApp() {
     });
 
     return true;
+  };
+
+  // Отмена заказа — зеркало writeOffIngredients: возвращаем то же количество
+  // в те же (по типу) партии, начиная с той, что списывалась первой (FIFO по
+  // сроку годности), не превышая ёмкость партии.
+  const restoreIngredientsToStock = (ingredients: { typeId: string; rawAmount: number }[]) => {
+    const toRestore = new Map<string, number>();
+    for (const ingredient of ingredients) {
+      if (!ingredient.typeId) continue;
+      toRestore.set(ingredient.typeId, (toRestore.get(ingredient.typeId) ?? 0) + ingredient.rawAmount);
+    }
+
+    setProducts((currentProducts) => {
+      const nextProducts = currentProducts.map((product) => ({ ...product, batches: [...product.batches] }));
+
+      for (const [typeId, amount] of toRestore) {
+        let left = amount;
+        const batchRefs = nextProducts
+          .filter((product) => product.typeId === typeId)
+          .flatMap((product) => product.batches.map((batch, index) => ({ product, batch, index })))
+          .sort((a, b) => a.batch.expiresAt.localeCompare(b.batch.expiresAt));
+
+        for (const ref of batchRefs) {
+          if (left <= epsilon) break;
+          const capacity = getBatchAmount(ref.product, ref.batch);
+          const canAdd = Math.max(0, capacity - ref.batch.remainingAmount);
+          const add = Math.min(canAdd, left);
+          if (add <= epsilon) continue;
+          left -= add;
+          ref.product.batches[ref.index] = {
+            ...ref.batch,
+            remainingAmount: formatAmount(ref.batch.remainingAmount + add),
+          };
+        }
+        // Партии не нашлось (тип удалён/распродан без остатка) — молча пропускаем,
+        // возвращать в никуда нечего.
+      }
+
+      return nextProducts.map((product) => ({
+        ...product,
+        amount: formatAmount(product.batches.reduce((sum, batch) => sum + batch.remainingAmount, 0)),
+      }));
+    });
   };
 
   const submitWriteOff = () => {
@@ -1798,6 +1852,12 @@ export default function StaffApp() {
 
   const canSellMenuPosition = (position: MenuPosition) => hasEnoughStock(position.ingredients);
 
+  // Правило: доступные позиции всегда сверху, недоступные — снизу.
+  const byAvailability = (list: MenuPosition[]) =>
+    [...list].sort((a, b) => Number(canSellMenuPosition(b)) - Number(canSellMenuPosition(a)));
+  const sortedListMenuPositions = byAvailability(listMenuPositions);
+  const sortedFilteredMenuPositions = byAvailability(filteredMenuPositions);
+
   const orderIngredients = orderLines.flatMap((line) =>
     line.position.ingredients.map((ingredient) => ({
       ...ingredient,
@@ -1828,9 +1888,15 @@ export default function StaffApp() {
         price: parseNumber(line.position.price),
         comment: line.position.comment || undefined,
         ingredients: line.position.ingredients.map((ingredient) => {
-          const type = getProductType(resolveIngredientTypeId(ingredient));
-          const amount = formatAmount(parseNumber(ingredient.amount) * line.quantity);
-          return { name: type?.name ?? "Ингредиент", amount: `${amount} ${type?.unit ?? ""}`.trim() };
+          const resolvedTypeId = resolveIngredientTypeId(ingredient);
+          const type = getProductType(resolvedTypeId);
+          const rawAmount = formatAmount(parseNumber(ingredient.amount) * line.quantity);
+          return {
+            name: type?.name ?? "Ингредиент",
+            amount: `${rawAmount} ${type?.unit ?? ""}`.trim(),
+            typeId: resolvedTypeId,
+            rawAmount,
+          };
         }),
       })),
       total: orderTotal,
@@ -1851,7 +1917,9 @@ export default function StaffApp() {
   };
 
   const cancelOrder = (order: OrderRecord) => {
-    if (!window.confirm(`Отменить заказ №${order.number}?`)) return;
+    if (order.status === "cancelled") return; // уже отменён — второй раз возвращать нечего
+    if (!window.confirm(`Отменить заказ №${order.number}? Списанные продукты вернутся на склад.`)) return;
+    restoreIngredientsToStock(order.items.flatMap((item) => item.ingredients));
     setOrders((prev) => prev.map((o) => (o.id === order.id ? { ...o, status: "cancelled" } : o)));
   };
 
@@ -1927,7 +1995,7 @@ export default function StaffApp() {
       <div className="flex h-full">
         <aside className="hidden w-72 shrink-0 flex-col border-r border-white/8 bg-[#17181b] lg:flex">
           <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5">
-            <div className="mb-8 flex items-center gap-3 px-2">
+            <div className="mb-8 flex items-center gap-2 px-2">
               <Image src="/logo.png" alt="Хмельной лис" width={53} height={53} className="size-[53px] shrink-0 rounded-xl object-cover" />
               <span className="tavern-font truncate text-xl font-bold text-amber-200">Хмельной лис</span>
             </div>
@@ -1982,7 +2050,7 @@ export default function StaffApp() {
             <nav className="absolute inset-y-0 left-0 flex w-72 flex-col border-r border-white/8 bg-[#17181b]">
               <div className="min-h-0 flex-1 overflow-y-auto p-4 pt-5">
                 <div className="mb-6 flex items-center justify-between px-2">
-                  <div className="flex min-w-0 items-center gap-3">
+                  <div className="flex min-w-0 items-center gap-2">
                     <Image src="/logo.png" alt="Хмельной лис" width={53} height={53} className="size-[53px] shrink-0 rounded-xl object-cover" />
                     <span className="tavern-font truncate text-xl font-bold text-amber-200">Хмельной лис</span>
                   </div>
@@ -2509,18 +2577,17 @@ export default function StaffApp() {
                   <h3 className="font-semibold">Позиции</h3>
                 </div>
                 <div className="divide-y divide-white/8">
-                  {listMenuPositions.length === 0 ? (
+                  {sortedListMenuPositions.length === 0 ? (
                     <Empty icon={Utensils} />
                   ) : (
-                    listMenuPositions.map((position) => {
+                    sortedListMenuPositions.map((position) => {
                       const available = canSellMenuPosition(position);
                       return (
                         <div
                           key={position.id}
                           className={`flex items-center gap-3 px-4 py-2 ${available ? "" : "opacity-55"}`}
                         >
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img className="size-9 shrink-0 rounded-full object-cover" src={position.imageUrl} alt="" />
+                          <PositionThumb src={position.imageUrl} />
                           <div className="min-w-0 flex-1">
                             <p className="truncate text-sm font-medium">{position.name}</p>
                             <p className="text-xs text-zinc-500">
@@ -3039,10 +3106,10 @@ export default function StaffApp() {
                 />
               </label>
               <div className="divide-y divide-white/8">
-                {filteredMenuPositions.length === 0 ? (
+                {sortedFilteredMenuPositions.length === 0 ? (
                   <Empty icon={Utensils} />
                 ) : (
-                  filteredMenuPositions.map((position) => {
+                  sortedFilteredMenuPositions.map((position) => {
                     const quantity = orderItems[position.id] ?? 0;
                     const available = canSellMenuPosition(position);
                     const canAddMore = canAddToOrder(position);
@@ -3051,13 +3118,13 @@ export default function StaffApp() {
                         key={position.id}
                         className={`flex items-center gap-3 px-4 py-2 ${available ? "" : "opacity-55"}`}
                       >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img className="size-9 shrink-0 rounded-full object-cover" src={position.imageUrl} alt="" />
+                        <PositionThumb src={position.imageUrl} />
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-sm font-medium">{position.name}</p>
                           <p className="text-xs text-zinc-500">
                             {formatMoney(parseNumber(position.price))} · {formatOrderQuantity(position, 1)}
                           </p>
+                          <p className="truncate text-[11px] text-zinc-600">{describeComposition(position)}</p>
                         </div>
                         <div className="flex shrink-0 items-center gap-1">
                           <button
@@ -3104,11 +3171,12 @@ export default function StaffApp() {
                 ) : (
                   orderLines.map((line) => (
                     <div key={line.position.id} className="flex items-center justify-between gap-3 p-4 text-sm">
-                      <div>
+                      <div className="min-w-0">
                         <p className="font-medium">{line.position.name}</p>
                         <p className="text-zinc-500">{formatOrderQuantity(line.position, line.quantity)}</p>
+                        <p className="truncate text-[11px] text-zinc-600">{describeComposition(line.position)}</p>
                       </div>
-                      <p className="font-semibold">{formatMoney(parseNumber(line.position.price) * line.quantity)}</p>
+                      <p className="shrink-0 font-semibold">{formatMoney(parseNumber(line.position.price) * line.quantity)}</p>
                     </div>
                   ))
                 )}
@@ -3861,6 +3929,20 @@ function Metric({ label, value }: { label: string; value: number }) {
       <p className="text-sm text-zinc-500">{label}</p>
       <strong className="mt-3 block text-2xl font-semibold">{value}</strong>
     </div>
+  );
+}
+
+function PositionThumb({ src }: { src: string }) {
+  if (!src) {
+    return (
+      <div className="grid size-9 shrink-0 place-items-center rounded-full bg-white/8 text-zinc-500">
+        <Utensils className="size-4" />
+      </div>
+    );
+  }
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img className="size-9 shrink-0 rounded-full object-cover" src={src} alt="" />
   );
 }
 

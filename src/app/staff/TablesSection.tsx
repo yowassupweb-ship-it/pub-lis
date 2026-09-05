@@ -997,15 +997,27 @@ export default function TablesSection({ guests }: { guests: ApiUser[] }) {
           </div>
 
           <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-white/8 bg-[#1b1c20] p-4">
-            <div className="mb-3 flex shrink-0 items-center justify-between">
-              <h3 className="font-semibold">{selectedDate}</h3>
-              <button
-                className="rounded-xl border border-white/8 px-3 py-1.5 text-xs text-zinc-300 hover:bg-[#25272c]"
-                type="button"
-                onClick={() => setView("map")}
-              >
-                Открыть карту
-              </button>
+            <div className="mb-3 flex shrink-0 items-center justify-between gap-2">
+              <h3 className="min-w-0 truncate font-semibold">{selectedDate}</h3>
+              <div className="flex shrink-0 gap-2">
+                {activeMapId && tables.length > 0 && (
+                  <button
+                    className="flex items-center gap-1.5 rounded-xl border border-white/8 px-3 py-1.5 text-xs text-zinc-300 hover:bg-[#25272c]"
+                    type="button"
+                    onClick={() => openQuickBooking(selectedDate)}
+                  >
+                    <Plus className="size-3.5" />
+                    Бронь
+                  </button>
+                )}
+                <button
+                  className="rounded-xl border border-white/8 px-3 py-1.5 text-xs text-zinc-300 hover:bg-[#25272c]"
+                  type="button"
+                  onClick={() => setView("map")}
+                >
+                  Открыть карту
+                </button>
+              </div>
             </div>
             {selectedDayItems.length === 0 ? (
               <p className="text-sm text-zinc-500">На этот день ничего не запланировано</p>

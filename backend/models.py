@@ -158,6 +158,8 @@ class Event(Base):
     participants_count: Mapped[int] = mapped_column(Integer)
     date_from: Mapped[date_type] = mapped_column(Date)
     date_to: Mapped[date_type] = mapped_column(Date)
+    time_from: Mapped[str] = mapped_column(Text, server_default="15:00")
+    time_to: Mapped[str] = mapped_column(Text, server_default="23:00")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
 
 

@@ -278,10 +278,14 @@ class EventOut(BaseModel):
     participants_count: int
     date_from: date
     date_to: date
+    time_from: str
+    time_to: str
 
 
 class EventCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
+    time_from: str = Field(min_length=1, max_length=5)
+    time_to: str = Field(min_length=1, max_length=5)
     participants_count: int = Field(ge=0, le=10000)
     date_from: date
     date_to: date
