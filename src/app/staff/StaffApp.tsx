@@ -780,6 +780,10 @@ export default function StaffApp() {
   const [selectedTypeIds, setSelectedTypeIds] = useState<Set<string>>(new Set());
   const [isPurchaseModalOpen, setIsPurchaseModalOpen] = useState(false);
   const [isProductModalOpen, setIsProductModalOpen] = useState(false);
+  const [newProductError, setNewProductError] = useState<string | null>(null);
+  const [positionFormError, setPositionFormError] = useState<string | null>(null);
+  const [purchaseFormError, setPurchaseFormError] = useState<string | null>(null);
+  const [categoryFormError, setCategoryFormError] = useState<string | null>(null);
   const [isTypeModalOpen, setIsTypeModalOpen] = useState(false);
   const [newTypeName, setNewTypeName] = useState("");
   const [newTypeId, setNewTypeId] = useState("");
@@ -827,6 +831,7 @@ export default function StaffApp() {
     packageSize: "1",
     stockUnit: "кг",
     shelfLifeDays: "7",
+    totalPrice: "",
   });
   const [draftPosition, setDraftPosition] = useState<MenuPosition>(() => createBlankPosition());
 
@@ -1520,7 +1525,10 @@ export default function StaffApp() {
   };
 
   const applyPurchase = async () => {
-    if (parsedItems.length === 0) return;
+    if (parsedItems.length === 0) {
+      setPurchaseFormError("Нечего сохранять — распознайте или добавьте хотя бы одну позицию закупки");
+      return;
+    }
 
     const items: PurchaseItemPayload[] = parsedItems.map((item) => ({
       name: item.name.trim(),
@@ -1537,23 +1545,33 @@ export default function StaffApp() {
       received_at: receivedAt,
       items,
     });
-    if (error) return;
+    if (error) {
+      setPurchaseFormError(error);
+      return;
+    }
 
     loadProducts();
     loadPurchases();
     setRawText("");
     setParsedItems([]);
+    setPurchaseFormError(null);
     setIsPurchaseModalOpen(false);
     setActiveSection("warehouse");
     setActiveTab("purchases");
   };
 
   const addManualProduct = async () => {
-    if (!newProduct.name.trim()) return;
+    if (!newProduct.name.trim()) {
+      setNewProductError("Укажите название товара");
+      return;
+    }
 
     const packs = parseNumber(newProduct.quantity);
     const packageSize = Math.max(0, parseNumber(newProduct.packageSize || "1")) || 1;
-    if (packs <= 0) return;
+    if (packs <= 0) {
+      setNewProductError("Укажите количество упаковок (больше нуля)");
+      return;
+    }
 
     const { error } = await apiAddManualProduct({
       name: newProduct.name.trim(),
@@ -1562,12 +1580,26 @@ export default function StaffApp() {
       stock_unit: newProduct.stockUnit || "шт",
       shelf_life_days: Math.max(0, Math.trunc(parseNumber(newProduct.shelfLifeDays || "7"))),
       packs,
+      total_price: newProduct.totalPrice ? parseNumber(newProduct.totalPrice) : null,
       received_at: receivedAt,
     });
-    if (error) return;
+    if (error) {
+      setNewProductError(error);
+      return;
+    }
 
     loadProducts();
-    setNewProduct({ name: "", quantity: "", unit: "уп", typeId: "", packageSize: "1", stockUnit: "кг", shelfLifeDays: "7" });
+    setNewProduct({
+      name: "",
+      quantity: "",
+      unit: "уп",
+      typeId: "",
+      packageSize: "1",
+      stockUnit: "кг",
+      shelfLifeDays: "7",
+      totalPrice: "",
+    });
+    setNewProductError(null);
     setIsProductModalOpen(false);
     setActiveSection("warehouse");
     setActiveTab("products");
@@ -1827,13 +1859,17 @@ export default function StaffApp() {
   const openEditPosition = (position: MenuPosition) => {
     setEditingPositionId(position.id);
     setDraftPosition({ ...position, ingredients: position.ingredients.map((i) => ({ ...i })) });
+    setPositionFormError(null);
     setIsPositionModalOpen(true);
   };
 
   const deletePosition = async (position: MenuPosition) => {
     if (!window.confirm(`Удалить позицию «${position.name}»?`)) return;
     const { error } = await apiDeleteMenuPosition(position.id);
-    if (error) return;
+    if (error) {
+      window.alert(error);
+      return;
+    }
     setMenuPositions((prev) => prev.filter((p) => p.id !== position.id));
   };
 
@@ -1870,30 +1906,52 @@ export default function StaffApp() {
   });
 
   const saveMenuPosition = async () => {
+    if (!draftPosition.name.trim()) {
+      setPositionFormError("Укажите название позиции");
+      return;
+    }
     const ingredients = draftPosition.ingredients.filter(
       (ingredient) => ingredient.typeId && parseNumber(ingredient.amount) > 0,
     );
-    if (!draftPosition.name.trim() || ingredients.length === 0) return;
+    if (ingredients.length === 0) {
+      setPositionFormError(
+        draftPosition.ingredients.length === 0
+          ? "Добавьте хотя бы один ингредиент в состав"
+          : "В строках состава не выбран тип расхода или указан нулевой расход — заполните хотя бы одну строку целиком",
+      );
+      return;
+    }
 
     const payload = buildMenuPositionPayload(draftPosition, ingredients);
     const { error } = editingPositionId
       ? await apiUpdateMenuPosition(editingPositionId, payload)
       : await apiCreateMenuPosition(payload);
-    if (error) return;
+    if (error) {
+      setPositionFormError(error);
+      return;
+    }
 
     loadMenuPositions();
     setEditingPositionId(null);
     setDraftPosition(createBlankPosition());
+    setPositionFormError(null);
     setIsPositionModalOpen(false);
   };
 
   const createCategory = async () => {
     const name = newCategoryName.trim();
-    if (!name) return;
+    if (!name) {
+      setCategoryFormError("Укажите название раздела");
+      return;
+    }
     const { data, error } = await apiCreateMenuCategory(name);
-    if (error || !data) return;
+    if (error || !data) {
+      setCategoryFormError(error ?? "Не удалось создать раздел");
+      return;
+    }
     setMenuCategories((prev) => [...prev, mapApiMenuCategory(data)]);
     setNewCategoryName("");
+    setCategoryFormError(null);
   };
 
   const startRenameCategory = (category: MenuCategory) => {
@@ -1907,14 +1965,20 @@ export default function StaffApp() {
     setEditingCategoryId(null);
     if (!name || !categoryId) return;
     const { data, error } = await apiUpdateMenuCategory(categoryId, name);
-    if (error || !data) return;
+    if (error || !data) {
+      window.alert(error ?? "Не удалось переименовать раздел");
+      return;
+    }
     setMenuCategories((prev) => prev.map((c) => (c.id === data.id ? mapApiMenuCategory(data) : c)));
   };
 
   const deleteCategory = async (category: MenuCategory) => {
     if (!window.confirm(`Удалить раздел «${category.name}»? Позиции останутся, но без раздела.`)) return;
     const { error } = await apiDeleteMenuCategory(category.id);
-    if (error) return;
+    if (error) {
+      window.alert(error);
+      return;
+    }
     setMenuCategories((prev) => prev.filter((c) => c.id !== category.id));
     setMenuPositions((prev) =>
       prev.map((position) => (position.categoryId === category.id ? { ...position, categoryId: null } : position)),
@@ -2026,7 +2090,11 @@ export default function StaffApp() {
   };
 
   const saveOrderEdit = async () => {
-    if (!editingOrderId || orderEditItems.length === 0) return;
+    if (!editingOrderId) return;
+    if (orderEditItems.length === 0) {
+      window.alert("В заказе не осталось ни одной позиции — отмените заказ целиком вместо обнуления состава");
+      return;
+    }
     const items: OrderLinePayload[] = orderEditItems.map((item) => ({
       menu_position_id: item.menuPositionId ?? undefined,
       name: item.name,
@@ -2035,7 +2103,10 @@ export default function StaffApp() {
       comment: item.comment,
     }));
     const { data, error } = await apiEditOrder(editingOrderId, items);
-    if (error || !data) return;
+    if (error || !data) {
+      window.alert(error ?? "Не удалось сохранить изменения заказа");
+      return;
+    }
     const updated = mapApiOrder(data);
     setOrders((prev) => prev.map((o) => (o.id === editingOrderId ? updated : o)));
     setEditingOrderId(null);
@@ -2680,7 +2751,10 @@ export default function StaffApp() {
                   <button
                     className="h-9 rounded-full border border-dashed border-white/15 px-4 text-sm text-zinc-500 hover:bg-[#1b1c20]"
                     type="button"
-                    onClick={() => setIsCategoryModalOpen(true)}
+                    onClick={() => {
+                      setCategoryFormError(null);
+                      setIsCategoryModalOpen(true);
+                    }}
                   >
                     Разделы…
                   </button>
@@ -2698,6 +2772,7 @@ export default function StaffApp() {
                       onClick={() => {
                         setEditingPositionId(null);
                         setDraftPosition(createBlankPosition());
+                        setPositionFormError(null);
                         setIsPositionModalOpen(true);
                       }}
                     >
@@ -2782,7 +2857,10 @@ export default function StaffApp() {
                     <button
                       className="inline-flex h-10 items-center gap-2 rounded-xl bg-zinc-100 px-4 text-sm font-medium text-zinc-950 shadow-md shadow-black/25 hover:bg-white"
                       type="button"
-                      onClick={() => setIsPurchaseModalOpen(true)}
+                      onClick={() => {
+                        setPurchaseFormError(null);
+                        setIsPurchaseModalOpen(true);
+                      }}
                     >
                       <Plus className="size-4" />
                       <span>Добавить закупку</span>
@@ -2790,7 +2868,10 @@ export default function StaffApp() {
                     <button
                       className="inline-flex h-10 items-center gap-2 rounded-xl border border-white/8 px-4 text-sm text-zinc-300 hover:bg-[#25272c]"
                       type="button"
-                      onClick={() => setIsProductModalOpen(true)}
+                      onClick={() => {
+                        setNewProductError(null);
+                        setIsProductModalOpen(true);
+                      }}
                     >
                       <Plus className="size-4" />
                       <span>Добавить товар</span>
@@ -3301,12 +3382,12 @@ export default function StaffApp() {
               </div>
             </div>
 
-            <aside className="flex min-h-[420px] flex-col rounded-xl border border-white/8 bg-[#17181b]">
+            <aside className="sticky top-0 flex max-h-[calc(100vh-8rem)] min-h-[420px] flex-col self-start overflow-hidden rounded-xl border border-white/8 bg-[#17181b]">
               <div className="flex items-center gap-2 border-b border-white/8 p-4">
                 <ShoppingCart className="size-4 text-violet-300" />
                 <h4 className="font-semibold">Заказ</h4>
               </div>
-              <div className="flex-1 divide-y divide-white/8">
+              <div className="min-h-0 flex-1 divide-y divide-white/8 overflow-y-auto">
                 {orderLines.length === 0 ? (
                   <Empty icon={ShoppingCart} />
                 ) : (
@@ -3436,6 +3517,7 @@ export default function StaffApp() {
                   Применить
                 </button>
               </div>
+              {purchaseFormError && <p className="border-b border-white/8 px-4 py-2 text-sm text-rose-400">{purchaseFormError}</p>}
               {parsedItems.length === 0 ? (
                 <Empty icon={Archive} />
               ) : (
@@ -3547,7 +3629,7 @@ export default function StaffApp() {
 
       {isProductModalOpen && (
         <Modal title="Добавить товар" onClose={() => setIsProductModalOpen(false)}>
-          <div className="grid gap-3 xl:grid-cols-[minmax(240px,420px)_240px_100px_120px_110px_120px_150px]">
+          <div className="grid gap-3 xl:grid-cols-[minmax(240px,420px)_240px_100px_120px_120px_110px_120px_150px]">
             <Field label="Название товара" hint="Как товар назван у поставщика">
               <input
                 className="h-10 w-full rounded-xl border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
@@ -3579,6 +3661,17 @@ export default function StaffApp() {
                 inputMode="decimal"
                 value={newProduct.quantity}
                 onChange={(event) => setNewProduct((item) => ({ ...item, quantity: numericInput(event.target.value) }))}
+              />
+            </Field>
+            <Field label="Цена, ₽" hint="Сколько заплатили за всё — необязательно, если чека нет">
+              <input
+                className="h-10 w-full rounded-xl border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
+                placeholder="без цены"
+                inputMode="decimal"
+                value={newProduct.totalPrice}
+                onChange={(event) =>
+                  setNewProduct((item) => ({ ...item, totalPrice: numericInput(event.target.value) }))
+                }
               />
             </Field>
             <Field label="Фасовка" hint="Сколько единиц расхода в одной упаковке">
@@ -3622,6 +3715,7 @@ export default function StaffApp() {
               />
             </Field>
           </div>
+          {newProductError && <p className="mt-3 text-sm text-rose-400">{newProductError}</p>}
           <div className="mt-4 flex justify-end">
             <button
               className="h-10 rounded-xl bg-zinc-100 px-4 text-sm font-medium text-zinc-950 shadow-md shadow-black/25 hover:bg-white"
@@ -3762,6 +3856,7 @@ export default function StaffApp() {
                 </div>
               ))
             )}
+            {categoryFormError && <p className="text-sm text-rose-400">{categoryFormError}</p>}
             <div className="flex gap-2 border-t border-white/8 pt-3">
               <input
                 className="h-10 min-w-0 flex-1 rounded-xl border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
@@ -3915,6 +4010,7 @@ export default function StaffApp() {
                   onChange={(event) => setDraftPosition((position) => ({ ...position, comment: event.target.value }))}
                 />
               </Field>
+              {positionFormError && <p className="text-sm text-rose-400">{positionFormError}</p>}
               <button
                 className="h-10 rounded-xl bg-zinc-100 px-4 text-sm font-medium text-zinc-950 shadow-md shadow-black/25 hover:bg-white"
                 type="button"
