@@ -31,22 +31,66 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import Image from "next/image";
+import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import {
   STAFF_ROLES,
+  apiAddManualProduct,
   apiAuditEvents,
+  apiCancelOrder,
   apiCreateGuest,
+  apiCreateMenuCategory,
+  apiCreateMenuPosition,
+  apiCreateOrder,
+  apiCreatePurchase,
+  apiCreateWriteOff,
   apiDeleteGuest,
+  apiDeleteMenuCategory,
+  apiDeleteMenuPosition,
+  apiEditOrder,
+  apiExportMenuPositions,
   apiGuests,
-  apiUpdateGuest,
+  apiImportMenuPositions,
+  apiImportProducts,
   apiLogout,
   apiMe,
+  apiMenuCategories,
+  apiMenuPositions,
+  apiOrders,
+  apiProductTypes,
+  apiProducts,
+  apiPurchases,
+  apiUpdateBatch,
+  apiUpdateGuest,
+  apiUpdateMenuCategory,
+  apiUpdateMenuPosition,
+  apiUpdateOrderKitchenStatus,
+  apiUpdateProduct,
   apiUploadImage,
+  apiWarehouseActivity,
+  apiWriteOffs,
+  type ApiActivityLogEntry,
   type ApiAuditEvent,
+  type ApiBatch,
+  type ApiMenuCategory as ApiMenuCategoryType,
+  type ApiMenuIngredient as ApiMenuIngredientType,
+  type ApiMenuPosition as ApiMenuPositionType,
+  type ApiOrder,
+  type ApiOrderLine,
+  type ApiOrderLineIngredient,
+  type ApiProduct,
+  type ApiPurchase as ApiPurchaseType,
   type ApiUser,
+  type ApiWriteOff,
+  type MenuIngredientPayload,
+  type MenuPositionExportPayload,
+  type MenuPositionPayload,
+  type OrderLinePayload,
+  type ProductImportPayload,
+  type PurchaseItemPayload,
 } from "@/lib/api";
 import { PRODUCT_TYPES } from "@/lib/productTypes";
 import EventsSection from "./EventsSection";
@@ -129,6 +173,7 @@ type WriteOffRecord = {
 const WRITE_OFF_REASONS = ["Просрочка", "Порча", "Бой/потери", "Излишек по инвентаризации", "Другое"];
 
 type OrderLineRecord = {
+  menuPositionId?: string | null;
   name: string;
   quantity: number;
   price: number;
@@ -171,26 +216,7 @@ type MenuPosition = {
 
 type MenuCategory = { id: string; name: string };
 
-// Действия без бэкенда (позиции/разделы меню — чисто клиентские сущности):
-// когда позицию удаляют, от неё не остаётся следа, поэтому пишем в журнал
-// явно, в момент действия, а не выводим из текущего состояния.
-type ClientLogEntry = { id: string; at: string; text: string };
 const uncategorizedCategoryId = "__uncategorized__";
-
-type ProductSeed = {
-  id: string;
-  name: string;
-  typeId: string;
-  packageSize: number;
-  stockUnit: string;
-  shelfLifeDays: string;
-  batches: Array<{
-    id: string;
-    packs: number;
-    totalPrice: number | null;
-    receivedAt: string;
-  }>;
-};
 
 const roles: Array<{ id: RoleId; label: string }> = [
   { id: "user", label: "Юзер" },
@@ -229,289 +255,10 @@ const SECTION_TITLES: Record<string, string> = {
   audit: "Действия",
 };
 
-const productTypes: ProductType[] = PRODUCT_TYPES;
-
-const productSeeds: ProductSeed[] = [
-  {
-    id: "p-dried-onion",
-    name: "METRO Chef Лук сушеный жареный, 600г",
-    typeId: "type-dried-onion",
-    packageSize: 0.6,
-    stockUnit: "кг",
-    shelfLifeDays: "180",
-    batches: [{ id: "b-2026-08-08-dried-onion", packs: 1, totalPrice: 619, receivedAt: daysAgo(2) }],
-  },
-  {
-    id: "p-potato-wedges",
-    name: "METRO Chef Дольки картофельные со специями быстрозамороженные, 2.5кг",
-    typeId: "type-potato-wedges",
-    packageSize: 2.5,
-    stockUnit: "кг",
-    shelfLifeDays: "180",
-    batches: [{ id: "b-2026-08-08-potato-wedges", packs: 1, totalPrice: 569, receivedAt: daysAgo(2) }],
-  },
-  {
-    id: "p-bacon",
-    name: "METRO Chef Бекон сырокопченый нарезка, 1кг",
-    typeId: "type-bacon",
-    packageSize: 1,
-    stockUnit: "кг",
-    shelfLifeDays: "30",
-    batches: [{ id: "b-2026-08-08-bacon", packs: 1, totalPrice: 769, receivedAt: daysAgo(2) }],
-  },
-  {
-    id: "p-fish-sticks",
-    name: "METRO Chef Рыбные палочки из филе минтая в панировке замороженные, 1кг",
-    typeId: "type-fish-sticks",
-    packageSize: 1,
-    stockUnit: "кг",
-    shelfLifeDays: "180",
-    batches: [
-      { id: "b-2026-06-23-fish-sticks", packs: 2, totalPrice: 1438, receivedAt: daysAgo(60) },
-      { id: "b-2026-08-08-fish-sticks", packs: 2, totalPrice: 1338, receivedAt: daysAgo(2) },
-    ],
-  },
-  {
-    id: "p-calamari",
-    name: "METRO Chef Кольца кальмара в панировке замороженные, 1кг",
-    typeId: "type-calamari",
-    packageSize: 1,
-    stockUnit: "кг",
-    shelfLifeDays: "180",
-    batches: [
-      { id: "b-2026-06-23-calamari", packs: 1, totalPrice: 1249, receivedAt: daysAgo(60) },
-      { id: "b-2026-08-08-calamari", packs: 1, totalPrice: 1249, receivedAt: daysAgo(2) },
-    ],
-  },
-  {
-    id: "p-fries-metro",
-    name: "METRO Chef Картофель фри 9x9мм замороженный, 2.5кг",
-    typeId: "type-fries",
-    packageSize: 2.5,
-    stockUnit: "кг",
-    shelfLifeDays: "180",
-    batches: [{ id: "b-2026-06-23-fries-metro", packs: 3, totalPrice: 1797, receivedAt: daysAgo(60) }],
-  },
-  {
-    id: "p-caesar-sauce",
-    name: "Соус Efko Food Professional цезарь 50.5%, 1кг",
-    typeId: "type-caesar-sauce",
-    packageSize: 1,
-    stockUnit: "кг",
-    shelfLifeDays: "60",
-    batches: [{ id: "b-2026-06-23-caesar-sauce", packs: 1, totalPrice: 329, receivedAt: daysAgo(60) }],
-  },
-  {
-    id: "p-bbq-sauce",
-    name: "Соус Efko Food Special барбекю ГОСТ, 1кг",
-    typeId: "type-bbq-sauce",
-    packageSize: 1,
-    stockUnit: "кг",
-    shelfLifeDays: "60",
-    batches: [{ id: "b-2026-06-23-bbq-sauce", packs: 2, totalPrice: 698, receivedAt: daysAgo(60) }],
-  },
-  {
-    id: "p-cheese-sauce",
-    name: "Соус Efko Food Professional сырный 35%, 1кг",
-    typeId: "type-cheese-sauce",
-    packageSize: 1,
-    stockUnit: "кг",
-    shelfLifeDays: "60",
-    batches: [
-      { id: "b-2026-06-23-cheese-sauce", packs: 1, totalPrice: 329, receivedAt: daysAgo(60) },
-      { id: "b-2026-07-09-cheese-sauce", packs: 2, totalPrice: 576.4, receivedAt: daysAgo(20) },
-    ],
-  },
-  {
-    id: "p-onion-rings",
-    name: "METRO Chef Луковые кольца в панировке замороженные, 1кг",
-    typeId: "type-onion-rings",
-    packageSize: 1,
-    stockUnit: "кг",
-    shelfLifeDays: "180",
-    batches: [{ id: "b-2026-07-09-onion-rings", packs: 2, totalPrice: 918, receivedAt: daysAgo(20) }],
-  },
-  {
-    id: "p-burger-bun",
-    name: "METRO Chef Булочка для гамбургера с кунжутом замороженная 125мм (89г x 12шт), 1.068кг",
-    typeId: "type-burger-bun",
-    packageSize: 12,
-    stockUnit: "шт",
-    shelfLifeDays: "90",
-    batches: [{ id: "b-2026-07-09-burger-bun", packs: 3, totalPrice: 1119.51, receivedAt: daysAgo(20) }],
-  },
-  {
-    id: "p-fries-triumph",
-    name: "Картофель фри Triumph без панировки быстрозамороженный 9 x 9мм, 2.5кг",
-    typeId: "type-fries",
-    packageSize: 2.5,
-    stockUnit: "кг",
-    shelfLifeDays: "180",
-    batches: [{ id: "b-2026-07-09-fries-triumph", packs: 3, totalPrice: 1578.33, receivedAt: daysAgo(20) }],
-  },
-  {
-    id: "p-garlic-sauce",
-    name: "Соус Efko Food Professional чесночный ГОСТ 35%, 1кг",
-    typeId: "type-garlic-sauce",
-    packageSize: 1,
-    stockUnit: "кг",
-    shelfLifeDays: "60",
-    batches: [{ id: "b-2026-07-09-garlic-sauce", packs: 2, totalPrice: 576.4, receivedAt: daysAgo(20) }],
-  },
-  {
-    id: "p-mustard-sauce",
-    name: "Соус Efko Food Special горчичный ГОСТ 22%, 1кг",
-    typeId: "type-mustard-sauce",
-    packageSize: 1,
-    stockUnit: "кг",
-    shelfLifeDays: "60",
-    batches: [{ id: "b-2026-07-09-mustard-sauce", packs: 1, totalPrice: null, receivedAt: daysAgo(20) }],
-  },
-  {
-    id: "p-chicken-wings",
-    name: "Куриные крылья",
-    typeId: "type-chicken-wings",
-    packageSize: 1,
-    stockUnit: "кг",
-    shelfLifeDays: "5",
-    batches: [{ id: "b-2026-08-08-chicken-wings", packs: 8, totalPrice: null, receivedAt: daysAgo(2) }],
-  },
-  {
-    id: "p-draft-lager",
-    name: "Разливное пиво: лагер, кег 30л",
-    typeId: "type-draft-lager",
-    packageSize: 30,
-    stockUnit: "л",
-    shelfLifeDays: "10",
-    batches: [{ id: "b-2026-08-08-draft-lager", packs: 1, totalPrice: 4200, receivedAt: daysAgo(2) }],
-  },
-  {
-    id: "p-draft-ipa",
-    name: "Разливное пиво: IPA, кег 30л",
-    typeId: "type-draft-ipa",
-    packageSize: 30,
-    stockUnit: "л",
-    shelfLifeDays: "10",
-    batches: [{ id: "b-2026-08-08-draft-ipa", packs: 1, totalPrice: 5400, receivedAt: daysAgo(2) }],
-  },
-  {
-    id: "p-draft-stout",
-    name: "Разливное пиво: стаут, кег 30л",
-    typeId: "type-draft-stout",
-    packageSize: 30,
-    stockUnit: "л",
-    shelfLifeDays: "10",
-    batches: [{ id: "b-2026-08-08-draft-stout", packs: 1, totalPrice: 5100, receivedAt: daysAgo(2) }],
-  },
-  {
-    id: "p-plastic-bottle-05",
-    name: "Бутылка пластиковая 0.5л",
-    typeId: "type-plastic-bottle-05",
-    packageSize: 1,
-    stockUnit: "шт",
-    shelfLifeDays: "365",
-    batches: [{ id: "b-2026-08-08-plastic-bottle-05", packs: 100, totalPrice: 2500, receivedAt: daysAgo(2) }],
-  },
-];
-
-const initialPurchases: PurchaseRecord[] = [
-  { id: "purchase-2026-08-08", receivedAt: daysAgo(2), itemCount: 6, total: 4544 },
-  { id: "purchase-2026-07-09", receivedAt: daysAgo(20), itemCount: 7, total: 4768.24 },
-  { id: "purchase-2026-06-23", receivedAt: daysAgo(60), itemCount: 6, total: 5840 },
-];
-
-const initialMenuPositions: MenuPosition[] = [
-  {
-    id: "menu-burger-classic",
-    name: "Бургер классический",
-    price: "590",
-    imageUrl: "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?auto=format&fit=crop&w=900&q=80",
-    ingredients: [
-      { id: "i-classic-bun", typeId: "type-burger-bun", amount: "1" },
-      { id: "i-classic-bacon", typeId: "type-bacon", amount: "0.12" },
-      { id: "i-classic-cheese", typeId: "type-cheese-sauce", amount: "0.04" },
-      { id: "i-classic-onion", typeId: "type-dried-onion", amount: "0.02" },
-    ],
-  },
-  {
-    id: "menu-burger-bbq",
-    name: "Бургер BBQ",
-    price: "640",
-    imageUrl: "https://images.unsplash.com/photo-1550547660-d9450f859349?auto=format&fit=crop&w=900&q=80",
-    ingredients: [
-      { id: "i-bbq-bun", typeId: "type-burger-bun", amount: "1" },
-      { id: "i-bbq-bacon", typeId: "type-bacon", amount: "0.14" },
-      { id: "i-bbq-sauce", typeId: "type-bbq-sauce", amount: "0.05" },
-      { id: "i-bbq-rings", typeId: "type-onion-rings", amount: "0.12" },
-    ],
-  },
-  {
-    id: "menu-fries",
-    name: "Картошка фри",
-    price: "290",
-    imageUrl: "https://images.unsplash.com/photo-1639024471283-03518883512d?auto=format&fit=crop&w=900&q=80",
-    ingredients: [{ id: "i-fries", typeId: "type-fries", amount: "0.2" }],
-  },
-  {
-    id: "menu-nuggets",
-    name: "Наггетсы",
-    price: "360",
-    imageUrl: "https://www.arise-app.com/images/dishes/de/hahnchennuggets-mit-saucen-wwjat0.webp",
-    ingredients: [
-      { id: "i-nuggets-fish", typeId: "type-fish-sticks", amount: "0.24" },
-      { id: "i-nuggets-garlic", typeId: "type-garlic-sauce", amount: "0.04" },
-    ],
-  },
-  {
-    id: "menu-wings",
-    name: "Крылья BBQ",
-    price: "490",
-    imageUrl: "https://images.unsplash.com/photo-1608039829572-78524f79c4c7?auto=format&fit=crop&w=900&q=80",
-    ingredients: [
-      { id: "i-wings-main", typeId: "type-chicken-wings", amount: "0.35" },
-      { id: "i-wings-bbq", typeId: "type-bbq-sauce", amount: "0.06" },
-    ],
-  },
-  {
-    id: "menu-burger-pickle",
-    name: "Бургер с огурцом",
-    price: "620",
-    imageUrl: "https://images.unsplash.com/photo-1594212699903-ec8a3eca50f5?auto=format&fit=crop&w=900&q=80",
-    ingredients: [
-      { id: "i-pickle-bun", typeId: "type-burger-bun", amount: "1" },
-      { id: "i-pickle-bacon", typeId: "type-bacon", amount: "0.12" },
-      { id: "i-pickle-cheese", typeId: "type-cheese-sauce", amount: "0.04" },
-      { id: "i-pickle-missing", typeId: "type-pickled-cucumber", amount: "0.08" },
-    ],
-  },
-  {
-    id: "menu-draft-lager",
-    name: "Лагер разливной",
-    price: "190",
-    imageUrl: "https://images.unsplash.com/photo-1608270586620-248524c67de9?auto=format&fit=crop&w=900&q=80",
-    orderStep: 0.5,
-    orderUnit: "л",
-    ingredients: [{ id: "i-draft-lager", typeId: "type-draft-lager", amount: "0.5" }],
-  },
-  {
-    id: "menu-draft-ipa",
-    name: "IPA разливная",
-    price: "240",
-    imageUrl: "https://images.unsplash.com/photo-1535958636474-b021ee887b13?auto=format&fit=crop&w=900&q=80",
-    orderStep: 0.5,
-    orderUnit: "л",
-    ingredients: [{ id: "i-draft-ipa", typeId: "type-draft-ipa", amount: "0.5" }],
-  },
-  {
-    id: "menu-draft-stout",
-    name: "Стаут разливной",
-    price: "230",
-    imageUrl: "https://images.unsplash.com/photo-1571613316887-6f8d5cbf7ef7?auto=format&fit=crop&w=900&q=80",
-    orderStep: 0.5,
-    orderUnit: "л",
-    ingredients: [{ id: "i-draft-stout", typeId: "type-draft-stout", amount: "0.5" }],
-  },
-];
+// Статический справочник используется только для чисто клиентских эвристик
+// разбора текста закупки (guessTypeId/typeKeywords) — актуальный список типов
+// приходит с бэкенда через apiProductTypes() в состояние компонента ниже.
+const staticProductTypes: ProductType[] = PRODUCT_TYPES;
 
 const ignoredLines = [
   /^товары:\s*\d+/i,
@@ -525,33 +272,16 @@ const ignoredLines = [
   /^\d{1,2}:\d{2}$/,
 ];
 
-const dataVersionStorageKey = "hitry-lis-data-version";
-const currentDataVersion = "2026-09-01-labels-v9";
-
 const orderPortion = (position: MenuPosition) => position.orderStep ?? 1;
 
 const formatOrderQuantity = (position: MenuPosition, quantity: number) => {
   const total = Math.round(quantity * orderPortion(position) * 100) / 100;
   return `${total} ${position.orderUnit ?? "шт"}`;
 };
-const productsStorageKey = "hitry-lis-products";
-const purchasesStorageKey = "hitry-lis-purchases";
-const menuStorageKey = "hitry-lis-menu-positions";
-const ordersStorageKey = "hitry-lis-orders";
-const orderCounterStorageKey = "hitry-lis-order-counter";
-const writeOffsStorageKey = "hitry-lis-write-offs";
-const shiftNotesStorageKey = "hitry-lis-shift-notes";
-const clientLogStorageKey = "hitry-lis-client-log";
-const menuCategoriesStorageKey = "hitry-lis-menu-categories";
 
-function normalizeName(name: string) {
-  return name
-    .toLowerCase()
-    .replaceAll("ё", "е")
-    .replace(/[^\p{L}\p{N}]+/gu, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
+// shiftNotes — единственная сущность здесь, оставшаяся в localStorage: это
+// чисто заметка смены на конкретном устройстве, не бизнес-данные склада/заказов.
+const shiftNotesStorageKey = "hitry-lis-shift-notes";
 
 function parseNumber(value: string) {
   const normalized = value.replace(/\s/g, "").replace(",", ".");
@@ -620,7 +350,7 @@ function typeKeywords(type: ProductType) {
 // слова, которые встречаются больше чем у одного типа ("соус", "пиво"), не различают типы
 const commonTypeWords = (() => {
   const counter = new Map<string, number>();
-  for (const type of productTypes) {
+  for (const type of staticProductTypes) {
     for (const word of new Set(typeKeywords(type))) {
       counter.set(word, (counter.get(word) ?? 0) + 1);
     }
@@ -634,7 +364,7 @@ function guessTypeId(name: string) {
   let bestId = "";
   let bestScore = 0;
 
-  for (const type of productTypes) {
+  for (const type of staticProductTypes) {
     const words = typeKeywords(type).filter((word) => !commonTypeWords.has(word));
     if (words.length === 0) continue;
 
@@ -736,30 +466,122 @@ function parsePurchaseText(text: string): ParsedItem[] {
   return items;
 }
 
-function createInitialProducts() {
-  return productSeeds
-    .map((product) => {
-      const batches = product.batches.map((batch) => ({
-        ...batch,
-        remainingAmount: batch.packs * product.packageSize,
-        expiresAt: addDays(batch.receivedAt, product.shelfLifeDays),
-        shelfLifeDays: product.shelfLifeDays,
-      }));
+// ── Маппинг ответов API (snake_case) в локальные camelCase-типы компонента —
+// вся остальная логика рендера/производных вычислений продолжает работать
+// с теми же типами Product/PurchaseRecord/... что и раньше, не заметив
+// разницы между localStorage и бэкендом.
 
-      return {
-        id: product.id,
-        name: product.name,
-        normalizedName: normalizeName(product.name),
-        typeId: product.typeId,
-        packageSize: product.packageSize,
-        stockUnit: product.stockUnit,
-        packs: batches.reduce((sum, batch) => sum + batch.packs, 0),
-        amount: batches.reduce((sum, batch) => sum + batch.remainingAmount, 0),
-        shelfLifeDays: product.shelfLifeDays,
-        batches,
-      };
-    })
-    .sort((a, b) => a.name.localeCompare(b.name, "ru"));
+function mapApiBatch(batch: ApiBatch): StockBatch {
+  return {
+    id: batch.id,
+    packs: batch.packs,
+    remainingAmount: batch.remaining_amount,
+    totalPrice: batch.total_price,
+    receivedAt: batch.received_at,
+    expiresAt: batch.expires_at,
+    shelfLifeDays: String(batch.shelf_life_days),
+  };
+}
+
+function mapApiProduct(product: ApiProduct): Product {
+  const batches = product.batches.map(mapApiBatch);
+  return {
+    id: product.id,
+    name: product.name,
+    normalizedName: product.normalized_name,
+    typeId: product.type_id,
+    packageSize: product.package_size,
+    stockUnit: product.stock_unit,
+    packs: batches.reduce((sum, batch) => sum + batch.packs, 0),
+    amount: batches.reduce((sum, batch) => sum + batch.remainingAmount, 0),
+    shelfLifeDays: String(product.shelf_life_days),
+    batches,
+  };
+}
+
+function mapApiPurchase(purchase: ApiPurchaseType): PurchaseRecord {
+  return {
+    id: purchase.id,
+    receivedAt: purchase.received_at,
+    itemCount: purchase.item_count,
+    total: purchase.total,
+  };
+}
+
+function mapApiWriteOff(entry: ApiWriteOff): WriteOffRecord {
+  return {
+    id: entry.id,
+    createdAt: entry.created_at,
+    productName: entry.product_name,
+    batchId: entry.batch_id,
+    amount: entry.amount,
+    unit: entry.unit,
+    reason: entry.reason,
+    value: entry.value,
+  };
+}
+
+function mapApiMenuCategory(category: ApiMenuCategoryType): MenuCategory {
+  return { id: category.id, name: category.name };
+}
+
+function mapApiMenuIngredient(ingredient: ApiMenuIngredientType): MenuIngredient {
+  return {
+    id: ingredient.id,
+    typeId: ingredient.type_id,
+    altTypeIds: ingredient.alt_type_ids,
+    amount: String(ingredient.amount),
+  };
+}
+
+function mapApiMenuPosition(position: ApiMenuPositionType): MenuPosition {
+  return {
+    id: position.id,
+    name: position.name,
+    price: String(position.price),
+    imageUrl: position.image_url ?? "",
+    orderStep: position.order_step ?? undefined,
+    orderUnit: position.order_unit ?? undefined,
+    categoryId: position.category_id,
+    comment: position.comment,
+    ingredients: position.ingredients.map(mapApiMenuIngredient),
+  };
+}
+
+function mapApiOrderLineIngredient(ingredient: ApiOrderLineIngredient) {
+  return {
+    name: ingredient.name,
+    amount: ingredient.amount_label,
+    typeId: ingredient.type_id,
+    rawAmount: ingredient.raw_amount,
+  };
+}
+
+function mapApiOrderLine(line: ApiOrderLine): OrderLineRecord {
+  return {
+    menuPositionId: line.menu_position_id,
+    name: line.name,
+    quantity: line.quantity,
+    price: line.price,
+    comment: line.comment ?? undefined,
+    ingredients: line.ingredients.map(mapApiOrderLineIngredient),
+  };
+}
+
+function mapApiOrder(order: ApiOrder): OrderRecord {
+  return {
+    id: order.id,
+    number: order.number,
+    createdAt: order.created_at,
+    completedAt: order.completed_at,
+    items: order.items.map(mapApiOrderLine),
+    total: order.total,
+    status: order.status,
+    kitchenStatus: order.kitchen_status,
+    route: order.route,
+    guestId: order.guest_id,
+    guestName: order.guest_name,
+  };
 }
 
 function formatMoney(value: number | null) {
@@ -845,10 +667,6 @@ function getProductExpiredAmount(product: Product) {
   return product.batches
     .filter((batch) => isBatchExpired(batch))
     .reduce((sum, batch) => sum + batch.remainingAmount, 0);
-}
-
-function getProductType(typeId: string) {
-  return productTypes.find((type) => type.id === typeId);
 }
 
 function formatAmount(value: number) {
@@ -944,31 +762,28 @@ export default function StaffApp() {
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
   const [activeTab, setActiveTab] = useState<WarehouseTab>("products");
-  const [products, setProducts] = useState<Product[]>(() => createInitialProducts());
-  const [purchases, setPurchases] = useState<PurchaseRecord[]>(initialPurchases);
-  const [menuPositions, setMenuPositions] = useState<MenuPosition[]>(initialMenuPositions);
+  const [productTypes, setProductTypes] = useState<ProductType[]>(staticProductTypes);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [purchases, setPurchases] = useState<PurchaseRecord[]>([]);
+  const [menuPositions, setMenuPositions] = useState<MenuPosition[]>([]);
   const [menuCategories, setMenuCategories] = useState<MenuCategory[]>([]);
   const [activeCategoryId, setActiveCategoryId] = useState<string>("all");
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState("");
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
   const [editingCategoryName, setEditingCategoryName] = useState("");
-  const [expandedProductId, setExpandedProductId] = useState<string | null>("p-fish-sticks");
-  const [expandedPurchaseId, setExpandedPurchaseId] = useState<string | null>("purchase-2026-08-08");
+  const [expandedProductId, setExpandedProductId] = useState<string | null>(null);
+  const [expandedPurchaseId, setExpandedPurchaseId] = useState<string | null>(null);
   const [isPurchaseModalOpen, setIsPurchaseModalOpen] = useState(false);
   const [isProductModalOpen, setIsProductModalOpen] = useState(false);
   const [isPositionModalOpen, setIsPositionModalOpen] = useState(false);
   const [editingPositionId, setEditingPositionId] = useState<string | null>(null);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [auditEvents, setAuditEvents] = useState<ApiAuditEvent[]>([]);
-  const [clientLog, setClientLog] = useState<ClientLogEntry[]>([]);
-  const logAction = (text: string) => {
-    setClientLog((prev) => [{ id: newId(), at: new Date().toISOString(), text }, ...prev].slice(0, 2000));
-  };
+  const [warehouseActivity, setWarehouseActivity] = useState<ApiActivityLogEntry[]>([]);
   const [imageUploadError, setImageUploadError] = useState<string | null>(null);
   const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
   const [orders, setOrders] = useState<OrderRecord[]>([]);
-  const [orderCounter, setOrderCounter] = useState(0);
   const [lastOrderNumber, setLastOrderNumber] = useState<number | null>(null);
   const [orderGuest, setOrderGuest] = useState<ApiUser | null>(null);
   const [guestSearchQuery, setGuestSearchQuery] = useState("");
@@ -982,7 +797,9 @@ export default function StaffApp() {
   const [writeOffReason, setWriteOffReason] = useState(WRITE_OFF_REASONS[0]);
   const [writeOffCustomReason, setWriteOffCustomReason] = useState("");
   const [writeOffFormError, setWriteOffFormError] = useState<string | null>(null);
-  const [shiftNotes, setShiftNotes] = useState("");
+  const [shiftNotes, setShiftNotes] = useState(() =>
+    typeof window === "undefined" ? "" : window.localStorage.getItem(shiftNotesStorageKey) ?? "",
+  );
   const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
   const [orderEditItems, setOrderEditItems] = useState<OrderLineRecord[]>([]);
   const [orderItems, setOrderItems] = useState<Record<string, number>>({});
@@ -1002,7 +819,6 @@ export default function StaffApp() {
     shelfLifeDays: "7",
   });
   const [draftPosition, setDraftPosition] = useState<MenuPosition>(() => createBlankPosition());
-  const isStorageReady = useRef(false);
 
   const [guests, setGuests] = useState<ApiUser[]>([]);
   const [guestsError, setGuestsError] = useState<string | null>(null);
@@ -1084,77 +900,47 @@ export default function StaffApp() {
     setGuests((current) => current.filter((g) => g.id !== guest.id));
   };
 
+  // shiftNotes — единственное, что осталось в localStorage (см. комментарий у ключа выше);
+  // начальное значение читается лениво в useState выше, тут только персистим изменения.
   useEffect(() => {
-    window.queueMicrotask(() => {
-      const version = window.localStorage.getItem(dataVersionStorageKey);
-
-      if (version !== currentDataVersion) {
-        window.localStorage.setItem(dataVersionStorageKey, currentDataVersion);
-        window.localStorage.setItem(productsStorageKey, JSON.stringify(createInitialProducts()));
-        window.localStorage.setItem(purchasesStorageKey, JSON.stringify(initialPurchases));
-        window.localStorage.setItem(menuStorageKey, JSON.stringify(initialMenuPositions));
-        isStorageReady.current = true;
-        return;
-      }
-
-      const savedProducts = window.localStorage.getItem(productsStorageKey);
-      const savedPurchases = window.localStorage.getItem(purchasesStorageKey);
-      const savedMenu = window.localStorage.getItem(menuStorageKey);
-      if (savedProducts) setProducts(JSON.parse(savedProducts) as Product[]);
-      if (savedPurchases) setPurchases(JSON.parse(savedPurchases) as PurchaseRecord[]);
-      if (savedMenu) setMenuPositions(JSON.parse(savedMenu) as MenuPosition[]);
-      isStorageReady.current = true;
-    });
-
-    // История заказов, списаний и счётчик номеров переживают сброс версии сид-данных — это не сиды, а факты
-    window.queueMicrotask(() => {
-      const savedOrders = window.localStorage.getItem(ordersStorageKey);
-      const savedCounter = window.localStorage.getItem(orderCounterStorageKey);
-      const savedWriteOffs = window.localStorage.getItem(writeOffsStorageKey);
-      const savedShiftNotes = window.localStorage.getItem(shiftNotesStorageKey);
-      const savedCategories = window.localStorage.getItem(menuCategoriesStorageKey);
-      const savedClientLog = window.localStorage.getItem(clientLogStorageKey);
-      if (savedOrders) setOrders(JSON.parse(savedOrders) as OrderRecord[]);
-      if (savedCounter) setOrderCounter(Number(savedCounter) || 0);
-      if (savedWriteOffs) setWriteOffs(JSON.parse(savedWriteOffs) as WriteOffRecord[]);
-      if (savedShiftNotes) setShiftNotes(savedShiftNotes);
-      if (savedCategories) setMenuCategories(JSON.parse(savedCategories) as MenuCategory[]);
-      if (savedClientLog) setClientLog(JSON.parse(savedClientLog) as ClientLogEntry[]);
-    });
-  }, []);
-
-  useEffect(() => {
-    if (!isStorageReady.current) return;
-    window.localStorage.setItem(productsStorageKey, JSON.stringify(products));
-    window.localStorage.setItem(purchasesStorageKey, JSON.stringify(purchases));
-    window.localStorage.setItem(menuStorageKey, JSON.stringify(menuPositions));
-  }, [products, purchases, menuPositions]);
-
-  useEffect(() => {
-    if (!isStorageReady.current) return;
-    window.localStorage.setItem(menuCategoriesStorageKey, JSON.stringify(menuCategories));
-  }, [menuCategories]);
-
-  useEffect(() => {
-    if (!isStorageReady.current) return;
-    window.localStorage.setItem(ordersStorageKey, JSON.stringify(orders));
-    window.localStorage.setItem(orderCounterStorageKey, String(orderCounter));
-  }, [orders, orderCounter]);
-
-  useEffect(() => {
-    if (!isStorageReady.current) return;
-    window.localStorage.setItem(writeOffsStorageKey, JSON.stringify(writeOffs));
-  }, [writeOffs]);
-
-  useEffect(() => {
-    if (!isStorageReady.current) return;
     window.localStorage.setItem(shiftNotesStorageKey, shiftNotes);
   }, [shiftNotes]);
 
+  const loadProducts = () => {
+    apiProducts().then((list) => setProducts((list ?? []).map(mapApiProduct)));
+  };
+  const loadPurchases = () => {
+    apiPurchases().then((list) => setPurchases((list ?? []).map(mapApiPurchase)));
+  };
+  const loadWriteOffs = () => {
+    apiWriteOffs().then((list) => setWriteOffs((list ?? []).map(mapApiWriteOff)));
+  };
+  const loadMenuCategories = () => {
+    apiMenuCategories().then((list) => setMenuCategories((list ?? []).map(mapApiMenuCategory)));
+  };
+  const loadMenuPositions = () => {
+    apiMenuPositions().then((list) => setMenuPositions((list ?? []).map(mapApiMenuPosition)));
+  };
+  const loadOrders = () => {
+    apiOrders().then((list) => {
+      if (list) setOrders(list.map(mapApiOrder));
+    });
+  };
+
+  // Первичная загрузка складских/меню/заказных данных с бэкенда — источник
+  // истины теперь БД, а не localStorage; всё стартует пустым до ответа API.
   useEffect(() => {
-    if (!isStorageReady.current) return;
-    window.localStorage.setItem(clientLogStorageKey, JSON.stringify(clientLog));
-  }, [clientLog]);
+    if (authState !== "authed" || !apiUser || !STAFF_ROLES.includes(apiUser.role)) return;
+    apiProductTypes().then((list) => {
+      if (list && list.length > 0) setProductTypes(list);
+    });
+    loadProducts();
+    loadPurchases();
+    loadWriteOffs();
+    loadMenuCategories();
+    loadMenuPositions();
+    loadOrders();
+  }, [authState, apiUser]);
 
   useEffect(() => {
     if (lastOrderNumber === null) return;
@@ -1170,31 +956,22 @@ export default function StaffApp() {
   useEffect(() => {
     if (activeSection !== "audit") return;
     apiAuditEvents(1000).then((list) => setAuditEvents(list ?? []));
+    apiWarehouseActivity(1000).then((list) => setWarehouseActivity(list ?? []));
   }, [activeSection]);
 
-  // Повар (/chef-display) меняет статусы заказов в том же localStorage —
-  // подхватываем это здесь, иначе таймер в «Заказах» не остановится, когда
-  // повар нажмёт «Готово», и отмену на кассе повар увидит с опозданием.
-  const lastOrdersJson = useRef("");
+  // Заказы теперь общие для всех устройств через бэкенд (не localStorage) —
+  // кухня/касса/другие вкладки могут менять статус заказа откуда угодно,
+  // поэтому просто опрашиваем API вместо слежения за одним браузерным ключом.
   useEffect(() => {
-    const sync = () => {
-      if (!isStorageReady.current) return;
-      const raw = window.localStorage.getItem(ordersStorageKey);
-      if (!raw || raw === lastOrdersJson.current) return;
-      lastOrdersJson.current = raw;
-      try {
-        setOrders(JSON.parse(raw) as OrderRecord[]);
-      } catch {
-        // битые данные в сторедже — игнорируем
-      }
-    };
-    window.addEventListener("storage", sync);
-    const timer = setInterval(sync, 3000);
-    return () => {
-      window.removeEventListener("storage", sync);
-      clearInterval(timer);
-    };
-  }, []);
+    if (authState !== "authed" || !apiUser || !STAFF_ROLES.includes(apiUser.role)) return;
+    const timer = setInterval(loadOrders, 3000);
+    return () => clearInterval(timer);
+  }, [authState, apiUser]);
+
+  // Живой справочник типов (из apiProductTypes(), с фолбэком на статический
+  // список пока запрос не ответил) — в отличие от одноимённой module-level
+  // константы staticProductTypes, используемой только эвристикой парсинга.
+  const getProductType = (typeId: string) => productTypes.find((type) => type.id === typeId);
 
   const purchaseTotal = useMemo(
     () => parsedItems.reduce((sum, item) => sum + (item.totalPrice ?? 0), 0),
@@ -1387,70 +1164,36 @@ export default function StaffApp() {
     setParsedItems((items) => items.map((item) => (item.id === id ? { ...item, ...patch } : item)));
   };
 
-  const updateProduct = (id: string, patch: Partial<Product>) => {
-    setProducts((items) => items.map((item) => (item.id === id ? { ...item, ...patch } : item)));
+  // Бэкенд (ProductUpdate) поддерживает обновление товара только по двум
+  // полям — package_size и shelf_life_days; name/type_id/stock_unit менять
+  // нельзя (см. warehouse_schemas.py). Поля с названием/типом/ед. расхода в
+  // разметке ниже сделаны read-only по этой причине (отклонение от исходной
+  // localStorage-версии, где это было чисто клиентское состояние).
+  const updateProductPackageSize = async (id: string, packageSize: number) => {
+    if (packageSize <= 0) return;
+    const { data } = await apiUpdateProduct(id, { package_size: packageSize });
+    if (data) setProducts((items) => items.map((item) => (item.id === id ? mapApiProduct(data) : item)));
   };
 
-  const updateProductPackageSize = (id: string, packageSize: number) => {
-    setProducts((items) =>
-      items.map((product) => {
-        if (product.id !== id) return product;
-
-        const batches = product.batches.map((batch) => ({
-          ...batch,
-          remainingAmount: batch.packs * packageSize,
-        }));
-
-        return {
-          ...product,
-          packageSize,
-          amount: batches.reduce((sum, batch) => sum + batch.remainingAmount, 0),
-          batches,
-        };
-      }),
-    );
+  const updateProductShelfLifeDays = async (id: string, shelfLifeDays: string) => {
+    const days = Math.max(0, Math.trunc(parseNumber(shelfLifeDays)));
+    const { data } = await apiUpdateProduct(id, { shelf_life_days: days });
+    if (data) setProducts((items) => items.map((item) => (item.id === id ? mapApiProduct(data) : item)));
   };
 
-  const updateProductBatch = (productId: string, batchId: string, patch: Partial<StockBatch>) => {
-    setProducts((items) =>
-      items.map((product) => {
-        if (product.id !== productId) return product;
-
-        const batches = product.batches.map((batch) => {
-          if (batch.id !== batchId) return batch;
-
-          const nextBatch = { ...batch, ...patch };
-          const nextPacks = patch.packs ?? nextBatch.packs;
-          const nextShelfLifeDays = patch.shelfLifeDays ?? nextBatch.shelfLifeDays;
-          const nextReceivedAt = patch.receivedAt ?? nextBatch.receivedAt;
-          const nextAmount = nextPacks * product.packageSize;
-          const nextRemainingAmount =
-            patch.remainingAmount !== undefined
-              ? Math.min(patch.remainingAmount, nextAmount)
-              : patch.packs !== undefined
-                ? nextAmount
-                : nextBatch.remainingAmount;
-
-          return {
-            ...nextBatch,
-            packs: nextPacks,
-            remainingAmount: nextRemainingAmount,
-            expiresAt:
-              patch.receivedAt !== undefined || patch.shelfLifeDays !== undefined
-                ? addDays(nextReceivedAt, nextShelfLifeDays)
-                : nextBatch.expiresAt,
-          };
-        });
-
-        return {
-          ...product,
-          packs: batches.reduce((sum, batch) => sum + batch.packs, 0),
-          amount: batches.reduce((sum, batch) => sum + batch.remainingAmount, 0),
-          shelfLifeDays: batches[0]?.shelfLifeDays ?? product.shelfLifeDays,
-          batches,
-        };
-      }),
-    );
+  // BatchUpdate тоже не поддерживает total_price — цену партии показываем,
+  // но менять с бэкендом синхронно нельзя, поле сделано read-only.
+  const updateProductBatch = async (productId: string, batchId: string, patch: Partial<StockBatch>) => {
+    const payload: { packs?: number; remaining_amount?: number; received_at?: string; shelf_life_days?: number } = {};
+    if (patch.packs !== undefined) payload.packs = patch.packs;
+    if (patch.remainingAmount !== undefined) payload.remaining_amount = patch.remainingAmount;
+    if (patch.receivedAt !== undefined) payload.received_at = patch.receivedAt;
+    if (patch.shelfLifeDays !== undefined) {
+      payload.shelf_life_days = Math.max(0, Math.trunc(parseNumber(patch.shelfLifeDays)));
+    }
+    if (Object.keys(payload).length === 0) return;
+    const { data } = await apiUpdateBatch(productId, batchId, payload);
+    if (data) setProducts((items) => items.map((item) => (item.id === productId ? mapApiProduct(data) : item)));
   };
 
   const changeOrderQuantity = (positionId: string, delta: number) => {
@@ -1505,85 +1248,7 @@ export default function StaffApp() {
       ([typeId, amount]) => getTypeAvailableAmount(typeId) + epsilon >= amount,
     );
 
-  const writeOffIngredients = (ingredients: MenuIngredient[]) => {
-    const required = collectRequirements(ingredients);
-    if (!hasEnoughStock(ingredients)) return false;
-
-    setProducts((currentProducts) => {
-      const nextProducts = currentProducts.map((product) => ({ ...product, batches: [...product.batches] }));
-
-      for (const [typeId, amount] of required) {
-        let left = amount;
-        const batchRefs = nextProducts
-          .filter((product) => product.typeId === typeId)
-          .flatMap((product) => product.batches.map((batch, index) => ({ product, batch, index })))
-          .filter((ref) => ref.batch.remainingAmount > 0 && !isBatchExpired(ref.batch))
-          .sort((a, b) => a.batch.expiresAt.localeCompare(b.batch.expiresAt));
-
-        for (const ref of batchRefs) {
-          if (left <= epsilon) break;
-          const writeOff = Math.min(ref.batch.remainingAmount, left);
-          left -= writeOff;
-          ref.product.batches[ref.index] = {
-            ...ref.batch,
-            remainingAmount: formatAmount(ref.batch.remainingAmount - writeOff),
-          };
-        }
-      }
-
-      return nextProducts.map((product) => ({
-        ...product,
-        amount: formatAmount(product.batches.reduce((sum, batch) => sum + batch.remainingAmount, 0)),
-      }));
-    });
-
-    return true;
-  };
-
-  // Отмена заказа — зеркало writeOffIngredients: возвращаем то же количество
-  // в те же (по типу) партии, начиная с той, что списывалась первой (FIFO по
-  // сроку годности), не превышая ёмкость партии.
-  const restoreIngredientsToStock = (ingredients: { typeId: string; rawAmount: number }[]) => {
-    const toRestore = new Map<string, number>();
-    for (const ingredient of ingredients) {
-      if (!ingredient.typeId) continue;
-      toRestore.set(ingredient.typeId, (toRestore.get(ingredient.typeId) ?? 0) + ingredient.rawAmount);
-    }
-
-    setProducts((currentProducts) => {
-      const nextProducts = currentProducts.map((product) => ({ ...product, batches: [...product.batches] }));
-
-      for (const [typeId, amount] of toRestore) {
-        let left = amount;
-        const batchRefs = nextProducts
-          .filter((product) => product.typeId === typeId)
-          .flatMap((product) => product.batches.map((batch, index) => ({ product, batch, index })))
-          .sort((a, b) => a.batch.expiresAt.localeCompare(b.batch.expiresAt));
-
-        for (const ref of batchRefs) {
-          if (left <= epsilon) break;
-          const capacity = getBatchAmount(ref.product, ref.batch);
-          const canAdd = Math.max(0, capacity - ref.batch.remainingAmount);
-          const add = Math.min(canAdd, left);
-          if (add <= epsilon) continue;
-          left -= add;
-          ref.product.batches[ref.index] = {
-            ...ref.batch,
-            remainingAmount: formatAmount(ref.batch.remainingAmount + add),
-          };
-        }
-        // Партии не нашлось (тип удалён/распродан без остатка) — молча пропускаем,
-        // возвращать в никуда нечего.
-      }
-
-      return nextProducts.map((product) => ({
-        ...product,
-        amount: formatAmount(product.batches.reduce((sum, batch) => sum + batch.remainingAmount, 0)),
-      }));
-    });
-  };
-
-  const submitWriteOff = () => {
+  const submitWriteOff = async () => {
     if (!writeOffTarget) return;
     const { product, batch } = writeOffTarget;
     const amount = parseNumber(writeOffAmount);
@@ -1597,93 +1262,47 @@ export default function StaffApp() {
       return;
     }
 
-    setProducts((items) =>
-      items.map((item) => {
-        if (item.id !== product.id) return item;
-        const batches = item.batches.map((b) =>
-          b.id === batch.id ? { ...b, remainingAmount: Math.max(0, b.remainingAmount - amount) } : b,
-        );
-        return { ...item, batches, amount: batches.reduce((sum, b) => sum + b.remainingAmount, 0) };
-      }),
-    );
+    const { error } = await apiCreateWriteOff({
+      product_id: product.id,
+      batch_id: batch.id,
+      amount,
+      reason,
+    });
+    if (error) {
+      setWriteOffFormError(error);
+      return;
+    }
 
-    const unitPrice = getBatchUnitPrice(product, batch) ?? 0;
-    setWriteOffs((prev) => [
-      {
-        id: newId(),
-        createdAt: new Date().toISOString(),
-        productName: product.name,
-        batchId: batch.id,
-        amount,
-        unit: product.stockUnit,
-        reason,
-        value: Math.round(unitPrice * amount * 100) / 100,
-      },
-      ...prev,
-    ]);
-
+    loadProducts();
+    loadWriteOffs();
     setWriteOffTarget(null);
     setWriteOffAmount("");
     setWriteOffCustomReason("");
     setWriteOffFormError(null);
   };
 
-  const addProductBatch = (item: ParsedItem) => {
-    const packs = parseNumber(item.quantity);
-    const packageSize = Math.max(0, parseNumber(item.packageSize || "1"));
-    const stockUnit = item.stockUnit || productTypes.find((type) => type.id === item.typeId)?.unit || item.unit || "шт";
-    if (!item.name.trim() || packs <= 0 || packageSize <= 0) return;
-
-    const normalizedName = normalizeName(item.name);
-    const batch: StockBatch = {
-      id: newId(),
-      packs,
-      remainingAmount: packs * packageSize,
-      totalPrice: item.totalPrice,
-      receivedAt,
-      expiresAt: addDays(receivedAt, item.shelfLifeDays),
-      shelfLifeDays: item.shelfLifeDays || "7",
-    };
-
-    setProducts((currentProducts) => {
-      const nextProducts = currentProducts.map((product) => ({ ...product, batches: [...product.batches] }));
-      const existing = nextProducts.find((product) => product.normalizedName === normalizedName);
-
-      if (existing) {
-        existing.packs += packs;
-        existing.amount += batch.remainingAmount;
-        existing.typeId = item.typeId || existing.typeId;
-        existing.packageSize = packageSize || existing.packageSize;
-        existing.stockUnit = stockUnit;
-        existing.shelfLifeDays = item.shelfLifeDays || existing.shelfLifeDays;
-        existing.batches = [batch, ...existing.batches];
-      } else {
-        nextProducts.push({
-          id: newId(),
-          name: item.name.trim(),
-          normalizedName,
-          typeId: item.typeId || "type-misc",
-          packageSize,
-          stockUnit,
-          packs,
-          amount: batch.remainingAmount,
-          shelfLifeDays: item.shelfLifeDays || "7",
-          batches: [batch],
-        });
-      }
-
-      return nextProducts.sort((a, b) => a.name.localeCompare(b.name, "ru"));
-    });
-  };
-
-  const applyPurchase = () => {
+  const applyPurchase = async () => {
     if (parsedItems.length === 0) return;
 
-    parsedItems.forEach(addProductBatch);
-    setPurchases((items) => [
-      { id: newId(), receivedAt, itemCount: parsedItems.length, total: purchaseTotal },
-      ...items,
-    ]);
+    const items: PurchaseItemPayload[] = parsedItems.map((item) => ({
+      name: item.name.trim(),
+      type_id: item.typeId || "type-misc",
+      package_size: Math.max(0, parseNumber(item.packageSize || "1")) || 1,
+      stock_unit: item.stockUnit || getProductType(item.typeId)?.unit || item.unit || "шт",
+      shelf_life_days: Math.max(0, Math.trunc(parseNumber(item.shelfLifeDays || "7"))),
+      packs: parseNumber(item.quantity),
+      total_price: item.totalPrice,
+    }));
+
+    const { error } = await apiCreatePurchase({
+      source_text: rawText,
+      received_at: receivedAt,
+      items,
+    });
+    if (error) return;
+
+    loadProducts();
+    loadPurchases();
     setRawText("");
     setParsedItems([]);
     setIsPurchaseModalOpen(false);
@@ -1691,62 +1310,123 @@ export default function StaffApp() {
     setActiveTab("purchases");
   };
 
-  const addManualProduct = () => {
+  const addManualProduct = async () => {
     if (!newProduct.name.trim()) return;
 
     const packs = parseNumber(newProduct.quantity);
-    const packageSize = Math.max(0, parseNumber(newProduct.packageSize || "1"));
-    const normalizedName = normalizeName(newProduct.name);
+    const packageSize = Math.max(0, parseNumber(newProduct.packageSize || "1")) || 1;
+    if (packs <= 0) return;
 
-    setProducts((currentProducts) => {
-      const nextProducts = currentProducts.map((product) => ({ ...product, batches: [...product.batches] }));
-      const existing = nextProducts.find((product) => product.normalizedName === normalizedName);
-      const batch =
-        packs > 0 && packageSize > 0
-          ? {
-              id: newId(),
-              packs,
-              remainingAmount: packs * packageSize,
-              totalPrice: null,
-              receivedAt,
-              expiresAt: addDays(receivedAt, newProduct.shelfLifeDays || "7"),
-              shelfLifeDays: newProduct.shelfLifeDays || "7",
-            }
-          : null;
-
-      if (existing) {
-        existing.name = newProduct.name.trim();
-        existing.typeId = newProduct.typeId || existing.typeId;
-        existing.packageSize = packageSize || existing.packageSize;
-        existing.stockUnit = newProduct.stockUnit || existing.stockUnit;
-        existing.shelfLifeDays = newProduct.shelfLifeDays || existing.shelfLifeDays;
-        if (batch) {
-          existing.packs += packs;
-          existing.amount += batch.remainingAmount;
-          existing.batches = [batch, ...existing.batches];
-        }
-      } else {
-        nextProducts.push({
-          id: newId(),
-          name: newProduct.name.trim(),
-          normalizedName,
-          typeId: newProduct.typeId || "type-misc",
-          packageSize: packageSize || 1,
-          stockUnit: newProduct.stockUnit || "шт",
-          packs,
-          amount: batch?.remainingAmount ?? 0,
-          shelfLifeDays: newProduct.shelfLifeDays || "7",
-          batches: batch ? [batch] : [],
-        });
-      }
-
-      return nextProducts.sort((a, b) => a.name.localeCompare(b.name, "ru"));
+    const { error } = await apiAddManualProduct({
+      name: newProduct.name.trim(),
+      type_id: newProduct.typeId || "type-misc",
+      package_size: packageSize,
+      stock_unit: newProduct.stockUnit || "шт",
+      shelf_life_days: Math.max(0, Math.trunc(parseNumber(newProduct.shelfLifeDays || "7"))),
+      packs,
+      received_at: receivedAt,
     });
+    if (error) return;
 
+    loadProducts();
     setNewProduct({ name: "", quantity: "", unit: "уп", typeId: "", packageSize: "1", stockUnit: "кг", shelfLifeDays: "7" });
     setIsProductModalOpen(false);
     setActiveSection("warehouse");
     setActiveTab("products");
+  };
+
+  // Экспорт/импорт склада в JSON — бэкап/перенос между окружениями. Экспорт
+  // сознательно шлёт свежий сырой ответ apiProducts() (snake_case, тот же
+  // ProductOut[], что отдаёт GET /warehouse/products), а не реshaping
+  // camelCase-стейта products — тогда файл 1:1 подходит обратно в импорт
+  // без какой-либо трансформации на клиенте.
+  const exportProductsJson = async () => {
+    const list = await apiProducts();
+    if (!list) {
+      window.alert("Не удалось получить товары для экспорта");
+      return;
+    }
+    const blob = new Blob([JSON.stringify(list, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `warehouse-export-${today()}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const importProductsFromFile = async (file: File) => {
+    const text = await file.text();
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      window.alert("Файл повреждён или это не JSON");
+      return;
+    }
+    const items = Array.isArray(parsed)
+      ? parsed
+      : parsed && typeof parsed === "object" && Array.isArray((parsed as { products?: unknown }).products)
+        ? (parsed as { products: unknown[] }).products
+        : null;
+    if (!items) {
+      window.alert("Неверный формат файла: ожидался массив товаров или объект {products: [...]}");
+      return;
+    }
+    const { data, error } = await apiImportProducts(items as ProductImportPayload[]);
+    if (error || !data) {
+      window.alert(error ?? "Не удалось импортировать товары");
+      return;
+    }
+    window.alert(
+      `Импорт завершён: новых товаров — ${data.products_created}, найдено существующих — ${data.products_matched}, добавлено партий — ${data.batches_created}`,
+    );
+    loadProducts();
+  };
+
+  const exportPositionsJson = async () => {
+    const list = await apiExportMenuPositions();
+    if (!list) {
+      window.alert("Не удалось получить позиции для экспорта");
+      return;
+    }
+    const blob = new Blob([JSON.stringify(list, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `menu-positions-export-${today()}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const importPositionsFromFile = async (file: File) => {
+    const text = await file.text();
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      window.alert("Файл повреждён или это не JSON");
+      return;
+    }
+    const items = Array.isArray(parsed)
+      ? parsed
+      : parsed && typeof parsed === "object" && Array.isArray((parsed as { positions?: unknown }).positions)
+        ? (parsed as { positions: unknown[] }).positions
+        : null;
+    if (!items) {
+      window.alert("Неверный формат файла: ожидался массив позиций или объект {positions: [...]}");
+      return;
+    }
+    const { data, error } = await apiImportMenuPositions(items as MenuPositionExportPayload[]);
+    if (error || !data) {
+      window.alert(error ?? "Не удалось импортировать позиции");
+      return;
+    }
+    window.alert(
+      `Импорт завершён: новых позиций — ${data.positions_created}, обновлено — ${data.positions_updated}, новых разделов — ${data.categories_created}`,
+    );
+    loadMenuPositions();
+    loadMenuCategories();
   };
 
   const addIngredientRow = () => {
@@ -1809,10 +1489,11 @@ export default function StaffApp() {
     setIsPositionModalOpen(true);
   };
 
-  const deletePosition = (position: MenuPosition) => {
+  const deletePosition = async (position: MenuPosition) => {
     if (!window.confirm(`Удалить позицию «${position.name}»?`)) return;
+    const { error } = await apiDeleteMenuPosition(position.id);
+    if (error) return;
     setMenuPositions((prev) => prev.filter((p) => p.id !== position.id));
-    logAction(`удалил позицию «${position.name}»`);
   };
 
   const uploadPositionImage = async (file: File) => {
@@ -1827,42 +1508,51 @@ export default function StaffApp() {
     setDraftPosition((position) => ({ ...position, imageUrl: url }));
   };
 
-  const saveMenuPosition = () => {
-    const ingredients = draftPosition.ingredients
-      .filter((ingredient) => ingredient.typeId && parseNumber(ingredient.amount) > 0)
-      .map((ingredient) => ({
-        ...ingredient,
-        altTypeIds: (ingredient.altTypeIds ?? []).filter(Boolean),
-      }));
+  // is_active всегда true — в этом клиенте нет переключателя видимости
+  // позиции, все созданные позиции сразу видны на /menu-display.
+  const buildMenuPositionPayload = (position: MenuPosition, ingredients: MenuIngredient[]): MenuPositionPayload => ({
+    name: position.name.trim(),
+    price: parseNumber(position.price),
+    category_id: position.categoryId || null,
+    image_url: position.imageUrl || null,
+    order_step: position.orderStep ?? null,
+    order_unit: position.orderUnit ?? null,
+    comment: position.comment ?? "",
+    is_active: true,
+    ingredients: ingredients.map(
+      (ingredient): MenuIngredientPayload => ({
+        type_id: ingredient.typeId,
+        alt_type_ids: (ingredient.altTypeIds ?? []).filter(Boolean),
+        amount: parseNumber(ingredient.amount),
+      }),
+    ),
+  });
+
+  const saveMenuPosition = async () => {
+    const ingredients = draftPosition.ingredients.filter(
+      (ingredient) => ingredient.typeId && parseNumber(ingredient.amount) > 0,
+    );
     if (!draftPosition.name.trim() || ingredients.length === 0) return;
 
-    if (editingPositionId) {
-      setMenuPositions((items) =>
-        items.map((item) =>
-          item.id === editingPositionId
-            ? { ...draftPosition, id: editingPositionId, name: draftPosition.name.trim(), ingredients }
-            : item,
-        ),
-      );
-      logAction(`изменил позицию «${draftPosition.name.trim()}»`);
-    } else {
-      setMenuPositions((items) => [
-        { ...draftPosition, id: newId(), name: draftPosition.name.trim(), ingredients },
-        ...items,
-      ]);
-      logAction(`создал позицию «${draftPosition.name.trim()}»`);
-    }
+    const payload = buildMenuPositionPayload(draftPosition, ingredients);
+    const { error } = editingPositionId
+      ? await apiUpdateMenuPosition(editingPositionId, payload)
+      : await apiCreateMenuPosition(payload);
+    if (error) return;
+
+    loadMenuPositions();
     setEditingPositionId(null);
     setDraftPosition(createBlankPosition());
     setIsPositionModalOpen(false);
   };
 
-  const createCategory = () => {
+  const createCategory = async () => {
     const name = newCategoryName.trim();
     if (!name) return;
-    setMenuCategories((prev) => [...prev, { id: newId(), name }]);
+    const { data, error } = await apiCreateMenuCategory(name);
+    if (error || !data) return;
+    setMenuCategories((prev) => [...prev, mapApiMenuCategory(data)]);
     setNewCategoryName("");
-    logAction(`создал раздел меню «${name}»`);
   };
 
   const startRenameCategory = (category: MenuCategory) => {
@@ -1870,25 +1560,25 @@ export default function StaffApp() {
     setEditingCategoryName(category.name);
   };
 
-  const saveRenameCategory = () => {
+  const saveRenameCategory = async () => {
     const name = editingCategoryName.trim();
-    if (!name || !editingCategoryId) {
-      setEditingCategoryId(null);
-      return;
-    }
-    setMenuCategories((prev) => prev.map((c) => (c.id === editingCategoryId ? { ...c, name } : c)));
+    const categoryId = editingCategoryId;
     setEditingCategoryId(null);
-    logAction(`переименовал раздел меню в «${name}»`);
+    if (!name || !categoryId) return;
+    const { data, error } = await apiUpdateMenuCategory(categoryId, name);
+    if (error || !data) return;
+    setMenuCategories((prev) => prev.map((c) => (c.id === data.id ? mapApiMenuCategory(data) : c)));
   };
 
-  const deleteCategory = (category: MenuCategory) => {
+  const deleteCategory = async (category: MenuCategory) => {
     if (!window.confirm(`Удалить раздел «${category.name}»? Позиции останутся, но без раздела.`)) return;
+    const { error } = await apiDeleteMenuCategory(category.id);
+    if (error) return;
     setMenuCategories((prev) => prev.filter((c) => c.id !== category.id));
     setMenuPositions((prev) =>
       prev.map((position) => (position.categoryId === category.id ? { ...position, categoryId: null } : position)),
     );
     if (activeCategoryId === category.id) setActiveCategoryId("all");
-    logAction(`удалил раздел меню «${category.name}»`);
   };
 
   const canSellMenuPosition = (position: MenuPosition) => hasEnoughStock(position.ingredients);
@@ -1933,76 +1623,54 @@ export default function StaffApp() {
   const canAddToOrder = (position: MenuPosition) =>
     hasEnoughStock([...orderIngredients, ...position.ingredients]);
 
-  const completeOrder = (route: "kitchen" | "self") => {
+  const completeOrder = async (route: "kitchen" | "self") => {
     if (orderLines.length === 0 || !canCompleteOrder()) return;
 
-    if (!writeOffIngredients(orderIngredients)) return;
+    // Состав/списание остатков теперь считает и делает сервер атомарно —
+    // клиент только присылает menu_position_id/количество, ingredients и
+    // сам номер заказа (identity-колонка в БД) больше не нужны на клиенте.
+    const items: OrderLinePayload[] = orderLines.map((line) => ({
+      menu_position_id: line.position.id,
+      name: line.position.name,
+      price: parseNumber(line.position.price),
+      quantity: line.quantity,
+      comment: line.position.comment || undefined,
+    }));
 
-    // Номер берём из самых свежих данных localStorage, а не из React-состояния:
-    // если два заказа создаются почти одновременно с разных вкладок/экранов,
-    // оба могут прочитать один и тот же устаревший orderCounter и получить
-    // одинаковый номер. Читаем и сразу же пишем — окно гонки схлопывается
-    // до одной синхронной операции в текущей вкладке.
-    const freshOrdersRaw = window.localStorage.getItem(ordersStorageKey);
-    let freshOrders: OrderRecord[] = [];
-    try {
-      freshOrders = freshOrdersRaw ? (JSON.parse(freshOrdersRaw) as OrderRecord[]) : [];
-    } catch {
-      freshOrders = [];
-    }
-    const number = Math.max(0, orderCounter, ...freshOrders.map((o) => o.number)) + 1;
-    const order: OrderRecord = {
-      id: newId(),
-      number,
-      createdAt: new Date().toISOString(),
-      items: orderLines.map((line) => ({
-        name: line.position.name,
-        quantity: line.quantity,
-        price: parseNumber(line.position.price),
-        comment: line.position.comment || undefined,
-        ingredients: line.position.ingredients.map((ingredient) => {
-          const resolvedTypeId = resolveIngredientTypeId(ingredient);
-          const type = getProductType(resolvedTypeId);
-          const rawAmount = formatAmount(parseNumber(ingredient.amount) * line.quantity);
-          return {
-            name: type?.name ?? "Ингредиент",
-            amount: `${rawAmount} ${type?.unit ?? ""}`.trim(),
-            typeId: resolvedTypeId,
-            rawAmount,
-          };
-        }),
-      })),
-      total: orderTotal,
-      status: "active",
-      completedAt: null,
-      kitchenStatus: "new",
+    const { data, error } = await apiCreateOrder({
       route,
-      guestId: orderGuest?.id ?? null,
-      guestName: orderGuest?.name ?? null,
-    };
-    setOrders([order, ...freshOrders]);
-    setOrderCounter(number);
-    setLastOrderNumber(number);
+      guest_id: orderGuest?.id ?? undefined,
+      guest_name: orderGuest?.name ?? undefined,
+      items,
+    });
+    if (error || !data) {
+      window.alert(error ?? "Не удалось оформить заказ");
+      return;
+    }
+
+    const order = mapApiOrder(data);
+    setOrders((prev) => [order, ...prev]);
+    loadProducts(); // сервер списал остатки — подтягиваем актуальные партии
+    setLastOrderNumber(order.number);
     setOrderItems({});
     setOrderGuest(null);
     setGuestSearchQuery("");
     setIsOrderModalOpen(false);
   };
 
-  const cancelOrder = (order: OrderRecord) => {
+  const cancelOrder = async (order: OrderRecord) => {
     if (order.status === "cancelled") return; // уже отменён — второй раз возвращать нечего
     if (!window.confirm(`Отменить заказ №${order.number}? Списанные продукты вернутся на склад.`)) return;
-    restoreIngredientsToStock(order.items.flatMap((item) => item.ingredients));
-    setOrders((prev) => prev.map((o) => (o.id === order.id ? { ...o, status: "cancelled" } : o)));
-    logAction(`отменил заказ №${order.number}, продукты возвращены на склад`);
+    const { data, error } = await apiCancelOrder(order.id);
+    if (error || !data) return;
+    setOrders((prev) => prev.map((o) => (o.id === order.id ? mapApiOrder(data) : o)));
+    loadProducts(); // сервер вернул остатки на склад FIFO — подтягиваем актуальные
   };
 
-  const markOrderDone = (order: OrderRecord) => {
-    // Не логируем отдельно — попадёт в журнал через сам факт completedAt
-    // у заказа (activityFeed берёт его из orders[], без дублей с кухней).
-    setOrders((prev) =>
-      prev.map((o) => (o.id === order.id ? { ...o, status: "completed", completedAt: new Date().toISOString() } : o)),
-    );
+  const markOrderDone = async (order: OrderRecord) => {
+    const { data, error } = await apiUpdateOrderKitchenStatus(order.id, "done");
+    if (error || !data) return;
+    setOrders((prev) => prev.map((o) => (o.id === order.id ? mapApiOrder(data) : o)));
   };
 
   const openEditOrder = (order: OrderRecord) => {
@@ -2016,21 +1684,27 @@ export default function StaffApp() {
     );
   };
 
-  const saveOrderEdit = () => {
-    if (!editingOrderId) return;
-    const total = orderEditItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
-    const editedOrder = orders.find((o) => o.id === editingOrderId);
-    setOrders((prev) =>
-      prev.map((o) => (o.id === editingOrderId ? { ...o, items: orderEditItems, total } : o)),
-    );
-    if (editedOrder) logAction(`изменил заказ №${editedOrder.number}`);
+  const saveOrderEdit = async () => {
+    if (!editingOrderId || orderEditItems.length === 0) return;
+    const items: OrderLinePayload[] = orderEditItems.map((item) => ({
+      menu_position_id: item.menuPositionId ?? undefined,
+      name: item.name,
+      price: item.price,
+      quantity: item.quantity,
+      comment: item.comment,
+    }));
+    const { data, error } = await apiEditOrder(editingOrderId, items);
+    if (error || !data) return;
+    const updated = mapApiOrder(data);
+    setOrders((prev) => prev.map((o) => (o.id === editingOrderId ? updated : o)));
     setEditingOrderId(null);
     setOrderEditItems([]);
   };
 
   // Журнал действий: серверные log_event (гости/столы/мероприятия/аккаунты/
-  // вход) + клиентские факты (заказы, списания), которых на бэке нет —
-  // склад/заказы полностью локальные. Общий вид: [время] кто · что.
+  // вход, БД hitry_lis_crm) + серверный журнал склада/меню/заказов
+  // (apiWarehouseActivity(), отдельная БД hitry_lis_warehouse) — общий вид:
+  // [время] кто · что. Раньше последнее было чисто клиентским clientLog.
   const AUDIT_ACTION_LABELS: Record<string, string> = {
     "auth.login": "вход в систему",
     "guest.create": "создал гостя",
@@ -2047,6 +1721,22 @@ export default function StaffApp() {
     "user.create": "создал аккаунт",
     "user.update": "изменил аккаунт",
     "sessions.revoke": "отозвал сессии",
+    "product_type.create": "создал тип товара",
+    "product.add_batch": "добавил партию товара",
+    "product.update": "изменил товар",
+    "product.update_batch": "изменил партию товара",
+    "purchase.create": "оформил закупку",
+    "write_off.create": "списал товар",
+    "menu_category.create": "создал раздел меню",
+    "menu_category.update": "переименовал раздел меню",
+    "menu_category.delete": "удалил раздел меню",
+    "menu_position.create": "создал позицию меню",
+    "menu_position.update": "изменил позицию меню",
+    "menu_position.delete": "удалил позицию меню",
+    "order.create": "создал заказ",
+    "order.kitchen_status": "изменил статус заказа",
+    "order.cancel": "отменил заказ",
+    "order.edit": "изменил заказ",
   };
 
   type ActivityEntry = { id: string; at: string; text: string };
@@ -2058,34 +1748,12 @@ export default function StaffApp() {
         e.entity_id ? ` #${shortId(e.entity_id)}` : ""
       }`,
     })),
-    ...orders.map((o): ActivityEntry => ({
-      id: `order-created-${o.id}`,
-      at: o.createdAt,
-      text: `заказ №${o.number} создан (${o.route === "self" ? "самостоятельно" : "кухня"}), ${formatMoney(o.total)}`,
-    })),
-    ...orders
-      .filter((o) => o.status === "completed" && o.completedAt)
-      .map((o): ActivityEntry => ({
-        id: `order-done-${o.id}`,
-        at: o.completedAt as string,
-        text: `заказ №${o.number} выполнен`,
-      })),
-    ...writeOffs.map((w): ActivityEntry => ({
-      id: `writeoff-${w.id}`,
-      at: w.createdAt,
-      text: `списание: ${w.productName} −${formatAmount(w.amount)} ${w.unit} (${w.reason})${
-        w.value > 0 ? ` −${formatMoney(w.value)}` : ""
+    ...warehouseActivity.map((e): ActivityEntry => ({
+      id: e.id,
+      at: e.created_at,
+      text: `${e.actor_name ?? "—"} · ${AUDIT_ACTION_LABELS[e.action] ?? e.action}${
+        e.entity_id ? ` #${shortId(e.entity_id)}` : ""
       }`,
-    })),
-    ...purchases.map((p): ActivityEntry => ({
-      id: `purchase-${p.id}`,
-      at: `${p.receivedAt}T12:00:00`,
-      text: `закупка #${shortId(p.id)}: ${p.itemCount} позиций, ${formatMoney(p.total)}`,
-    })),
-    ...clientLog.map((entry): ActivityEntry => ({
-      id: `client-log-${entry.id}`,
-      at: entry.at,
-      text: entry.text,
     })),
   ].sort((a, b) => b.at.localeCompare(a.at));
 
@@ -2116,12 +1784,12 @@ export default function StaffApp() {
               : "Доступно только персоналу бара: бармену, менеджеру и администратору."}
           </p>
           <div className="mt-6 flex justify-center gap-3">
-            <a
+            <Link
               href="/"
               className="inline-flex items-center gap-2 rounded-xl border border-white/8 bg-[#1b1c20] px-4 py-2 text-sm text-zinc-300 transition hover:text-zinc-100"
             >
               К расписанию игр
-            </a>
+            </Link>
             {authState === "guest" && (
               <a
                 href="/login"
@@ -2681,18 +2349,40 @@ export default function StaffApp() {
 
               <div className="flex flex-wrap gap-2">
                 {activeSection === "positions" ? (
-                  <button
-                    className="inline-flex h-10 items-center gap-2 rounded-xl bg-zinc-100 px-4 text-sm font-medium text-zinc-950 shadow-md shadow-black/25 hover:bg-white"
-                    type="button"
-                    onClick={() => {
-                      setEditingPositionId(null);
-                      setDraftPosition(createBlankPosition());
-                      setIsPositionModalOpen(true);
-                    }}
-                  >
-                    <Plus className="size-4" />
-                    <span>Добавить позицию</span>
-                  </button>
+                  <>
+                    <button
+                      className="inline-flex h-10 items-center gap-2 rounded-xl bg-zinc-100 px-4 text-sm font-medium text-zinc-950 shadow-md shadow-black/25 hover:bg-white"
+                      type="button"
+                      onClick={() => {
+                        setEditingPositionId(null);
+                        setDraftPosition(createBlankPosition());
+                        setIsPositionModalOpen(true);
+                      }}
+                    >
+                      <Plus className="size-4" />
+                      <span>Добавить позицию</span>
+                    </button>
+                    <button
+                      className="inline-flex h-10 items-center gap-2 rounded-xl border border-white/8 px-4 text-sm text-zinc-300 hover:bg-[#25272c]"
+                      type="button"
+                      onClick={exportPositionsJson}
+                    >
+                      <span>Экспорт JSON</span>
+                    </button>
+                    <label className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-xl border border-white/8 px-4 text-sm text-zinc-300 hover:bg-[#25272c]">
+                      <span>Импорт JSON</span>
+                      <input
+                        className="hidden"
+                        type="file"
+                        accept=".json,application/json"
+                        onChange={(event) => {
+                          const file = event.target.files?.[0];
+                          event.target.value = "";
+                          if (file) importPositionsFromFile(file);
+                        }}
+                      />
+                    </label>
+                  </>
                 ) : activeSection === "guests" ? (
                   <button
                     className="inline-flex h-10 items-center gap-2 rounded-xl bg-zinc-100 px-4 text-sm font-medium text-zinc-950 shadow-md shadow-black/25 hover:bg-white"
@@ -2720,6 +2410,26 @@ export default function StaffApp() {
                       <Plus className="size-4" />
                       <span>Добавить товар</span>
                     </button>
+                    <button
+                      className="inline-flex h-10 items-center gap-2 rounded-xl border border-white/8 px-4 text-sm text-zinc-300 hover:bg-[#25272c]"
+                      type="button"
+                      onClick={exportProductsJson}
+                    >
+                      <span>Экспорт JSON</span>
+                    </button>
+                    <label className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-xl border border-white/8 px-4 text-sm text-zinc-300 hover:bg-[#25272c]">
+                      <span>Импорт JSON</span>
+                      <input
+                        className="hidden"
+                        type="file"
+                        accept=".json,application/json"
+                        onChange={(event) => {
+                          const file = event.target.files?.[0];
+                          event.target.value = "";
+                          if (file) importProductsFromFile(file);
+                        }}
+                      />
+                    </label>
                   </>
                 )}
               </div>
@@ -2954,29 +2664,19 @@ export default function StaffApp() {
                         {expandedProductId === product.id && (
                           <div className="space-y-3 border-t border-white/8 bg-[#17181b] p-4">
                             <div className="grid gap-3 md:grid-cols-[minmax(220px,420px)_220px_130px_120px_160px]">
-                              <Field label="Название товара" hint="Как товар назван у поставщика">
+                              <Field label="Название товара" hint="Меняется только через новую закупку — бэкенд не поддерживает переименование товара">
                                 <input
-                                  className="h-10 w-full min-w-0 rounded-xl border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
+                                  className="h-10 w-full min-w-0 rounded-xl border border-white/8 bg-[#111214] px-3 text-sm text-zinc-400 outline-none"
                                   value={product.name}
-                                  onChange={(event) =>
-                                    updateProduct(product.id, {
-                                      name: event.target.value,
-                                      normalizedName: normalizeName(event.target.value),
-                                    })
-                                  }
+                                  readOnly
                                 />
                               </Field>
-                              <Field label="Тип расхода" hint="Из этого типа блюда списывают ингредиент">
+                              <Field label="Тип расхода" hint="Задаётся при создании товара — бэкенд не поддерживает смену типа">
                                 <DarkSelect
                                   value={product.typeId}
                                   options={productTypes.map((item) => ({ id: item.id, label: item.name }))}
-                                  onChange={(value) => {
-                                    const selectedType = getProductType(value);
-                                    updateProduct(product.id, {
-                                      typeId: value,
-                                      stockUnit: selectedType?.unit ?? product.stockUnit,
-                                    });
-                                  }}
+                                  onChange={() => {}}
+                                  disabled
                                 />
                               </Field>
                               <Field label="Фасовка" hint="Сколько единиц расхода в одной упаковке">
@@ -2989,11 +2689,11 @@ export default function StaffApp() {
                                   }
                                 />
                               </Field>
-                              <Field label="Ед. расхода" hint="В чём списываем: кг, л или шт">
+                              <Field label="Ед. расхода" hint="Задаётся при создании товара — бэкенд не поддерживает смену единицы">
                                 <input
-                                  className="h-10 w-full min-w-0 rounded-xl border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
+                                  className="h-10 w-full min-w-0 rounded-xl border border-white/8 bg-[#111214] px-3 text-sm text-zinc-400 outline-none"
                                   value={product.stockUnit}
-                                  onChange={(event) => updateProduct(product.id, { stockUnit: event.target.value })}
+                                  readOnly
                                 />
                               </Field>
                               <Field label="Срок по умолчанию, дн." hint="Подставляется новым партиям этого товара">
@@ -3001,9 +2701,7 @@ export default function StaffApp() {
                                   className="h-10 w-full min-w-0 rounded-xl border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
                                   inputMode="numeric"
                                   value={product.shelfLifeDays}
-                                  onChange={(event) =>
-                                    updateProduct(product.id, { shelfLifeDays: numericInput(event.target.value) })
-                                  }
+                                  onChange={(event) => updateProductShelfLifeDays(product.id, event.target.value)}
                                 />
                               </Field>
                             </div>
@@ -3087,18 +2785,11 @@ export default function StaffApp() {
                                           }
                                         />
                                       </Field>
-                                      <Field label="Цена партии, ₽" hint="Сумма по чеку за всю партию">
+                                      <Field label="Цена партии, ₽" hint="Сумма по чеку — бэкенд не поддерживает правку цены после создания партии">
                                         <input
-                                          className="h-9 w-full min-w-0 rounded-xl border border-white/8 bg-[#17181b] px-3 text-sm outline-none focus:border-zinc-400"
-                                          inputMode="decimal"
-                                          placeholder="Цена партии"
-                                          value={batch.totalPrice ?? ""}
-                                          onChange={(event) =>
-                                            updateProductBatch(product.id, batch.id, {
-                                              totalPrice:
-                                                event.target.value.trim() === "" ? null : parseNumber(event.target.value),
-                                            })
-                                          }
+                                          className="h-9 w-full min-w-0 rounded-xl border border-white/8 bg-[#17181b] px-3 text-sm text-zinc-400 outline-none"
+                                          value={batch.totalPrice ?? "без цены"}
+                                          readOnly
                                         />
                                       </Field>
                                       <Field label="Дата закупки" hint="От неё считается срок годности">
@@ -3249,8 +2940,7 @@ export default function StaffApp() {
         <Modal title={infoPosition.name} onClose={() => setInfoPositionId(null)}>
           <div className="mx-auto grid max-w-3xl gap-4">
             <div className="flex items-center gap-4">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img className="size-20 shrink-0 rounded-full object-cover" src={infoPosition.imageUrl} alt="" />
+              <PositionThumb src={infoPosition.imageUrl} size="size-20" />
               <div>
                 <p className="text-lg font-semibold">{infoPosition.name}</p>
                 <p className="text-sm text-zinc-500">
@@ -3285,7 +2975,7 @@ export default function StaffApp() {
 
       {isOrderModalOpen && (
         <Modal
-          title={`Новый заказ · №${orderCounter + 1}`}
+          title="Новый заказ"
           onClose={() => {
             setIsOrderModalOpen(false);
             setSearchQuery("");
@@ -3487,7 +3177,12 @@ export default function StaffApp() {
 
             <div className="rounded-xl border border-white/8 bg-[#17181b]">
               <div className="flex items-center justify-between border-b border-white/8 p-4">
-                <h4 className="font-semibold">Распознано</h4>
+                <h4 className="font-semibold">
+                  Распознано
+                  {parsedItems.length > 0 && (
+                    <span className="ml-2 text-sm font-normal text-zinc-500">{formatMoney(purchaseTotal)}</span>
+                  )}
+                </h4>
                 <button
                   className="h-10 rounded-xl bg-zinc-100 px-4 text-sm font-medium text-zinc-950 hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
                   disabled={parsedItems.length === 0}
@@ -3634,7 +3329,7 @@ export default function StaffApp() {
                 }}
               />
             </Field>
-            <Field label="Упаковок" hint="0 — если заводим карточку без остатка">
+            <Field label="Упаковок" hint="Сколько упаковок пришло (нужно хотя бы одну)">
               <input
                 className="h-10 w-full rounded-xl border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
                 inputMode="decimal"
@@ -4139,17 +3834,17 @@ function Metric({ label, value }: { label: string; value: number }) {
   );
 }
 
-function PositionThumb({ src }: { src: string }) {
+function PositionThumb({ src, size = "size-9" }: { src: string; size?: string }) {
   if (!src) {
     return (
-      <div className="grid size-9 shrink-0 place-items-center rounded-full bg-white/8 text-zinc-500">
+      <div className={`grid ${size} shrink-0 place-items-center rounded-full bg-white/8 text-zinc-500`}>
         <Utensils className="size-4" />
       </div>
     );
   }
   return (
     // eslint-disable-next-line @next/next/no-img-element
-    <img className="size-9 shrink-0 rounded-full object-cover" src={src} alt="" />
+    <img className={`${size} shrink-0 rounded-full object-cover`} src={src} alt="" />
   );
 }
 
@@ -4167,12 +3862,14 @@ function DarkSelect({
   onChange,
   icon: Icon,
   pill = false,
+  disabled = false,
 }: {
   value: string;
   options: Array<{ id: string; label: string }>;
   onChange: (value: string) => void;
   icon?: LucideIcon;
   pill?: boolean;
+  disabled?: boolean;
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const selected = options.find((option) => option.id === value) ?? options[0];
@@ -4180,11 +3877,12 @@ function DarkSelect({
   return (
     <div className="relative min-w-0">
       <button
-        className={`flex h-10 w-full min-w-0 items-center justify-between gap-3 border border-white/8 bg-[#1b1c20] px-3 text-sm text-zinc-100 outline-none hover:bg-[#25272c] ${
+        className={`flex h-10 w-full min-w-0 items-center justify-between gap-3 border border-white/8 bg-[#1b1c20] px-3 text-sm text-zinc-100 outline-none hover:bg-[#25272c] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-[#1b1c20] ${
           pill ? "min-w-44 rounded-full" : "rounded-xl"
         }`}
         type="button"
-        onClick={() => setIsOpen((current) => !current)}
+        disabled={disabled}
+        onClick={() => !disabled && setIsOpen((current) => !current)}
       >
         <span className="flex min-w-0 items-center gap-2">
           {Icon && <Icon className="size-4 shrink-0 text-zinc-400" />}

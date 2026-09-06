@@ -12,6 +12,7 @@ $COMPOSE up -d --build
 
 echo "== миграции =="
 $COMPOSE exec -T api alembic upgrade head
+$COMPOSE exec -T api alembic -c alembic_warehouse.ini upgrade head
 
 echo "== caddy: перечитать конфиг =="
 $COMPOSE restart caddy >/dev/null

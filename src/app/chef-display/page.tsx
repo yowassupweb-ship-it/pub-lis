@@ -3,12 +3,12 @@
 import { LogIn } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-import { STAFF_ROLES, apiMe, type ApiUser } from "@/lib/api";
+import { STAFF_ROLES, apiMe, apiOrders, apiUpdateOrderKitchenStatus, type ApiOrder, type ApiUser } from "@/lib/api";
 
 type OrderLine = {
   name: string;
   quantity: number;
-  comment?: string;
+  comment?: string | null;
   ingredients: { name: string; amount: string }[];
 };
 type Order = {
@@ -22,20 +22,25 @@ type Order = {
   route?: "kitchen" | "self";
 };
 
-const ordersStorageKey = "hitry-lis-orders";
-
-function readOrders(): Order[] {
-  const raw = window.localStorage.getItem(ordersStorageKey);
-  if (!raw) return [];
-  try {
-    return JSON.parse(raw) as Order[];
-  } catch {
-    return [];
-  }
-}
-
-function writeOrders(orders: Order[]) {
-  window.localStorage.setItem(ordersStorageKey, JSON.stringify(orders));
+function mapOrder(order: ApiOrder): Order {
+  return {
+    id: order.id,
+    number: order.number,
+    createdAt: order.created_at,
+    completedAt: order.completed_at,
+    items: order.items.map((line) => ({
+      name: line.name,
+      quantity: line.quantity,
+      comment: line.comment,
+      ingredients: line.ingredients.map((ingredient) => ({
+        name: ingredient.name,
+        amount: ingredient.amount_label,
+      })),
+    })),
+    status: order.status,
+    kitchenStatus: order.kitchen_status,
+    route: order.route,
+  };
 }
 
 function isForKitchen(order: Order) {
@@ -96,60 +101,59 @@ export default function ChefDisplay() {
     });
   }, []);
 
+  // Заказы теперь общие для всех устройств через бэкенд — /staff (касса)
+  // и /chef-display (кухня) синхронизируются через один и тот же API,
+  // а не через localStorage одного браузера.
   useEffect(() => {
+    if (authState !== "authed") return;
     const load = () => {
-      const fresh = readOrders();
-      const freshKitchen = fresh.filter(isForKitchen);
-      const prev = prevOrdersRef.current;
-      if (prev === null) {
-        // первая загрузка — просто запоминаем, не сигналим
-      } else {
-        for (const order of freshKitchen) {
-          const before = prev.get(order.id);
-          if (!before && order.kitchenStatus === "new") playNewOrderChime();
-          if (before && before.status !== "cancelled" && order.status === "cancelled") {
-            playCancelChime();
-            setCancelAlerts((alerts) => [...alerts, { id: order.id, number: order.number }]);
-            setTimeout(() => setCancelAlerts((alerts) => alerts.filter((a) => a.id !== order.id)), 15000);
+      apiOrders({ route: "kitchen" }).then((fresh) => {
+        if (!fresh) return;
+        const mapped = fresh.map(mapOrder);
+        const prev = prevOrdersRef.current;
+        if (prev === null) {
+          // первая загрузка — просто запоминаем, не сигналим
+        } else {
+          for (const order of mapped) {
+            const before = prev.get(order.id);
+            if (!before && order.kitchenStatus === "new") playNewOrderChime();
+            if (before && before.status !== "cancelled" && order.status === "cancelled") {
+              playCancelChime();
+              setCancelAlerts((alerts) => [...alerts, { id: order.id, number: order.number }]);
+              setTimeout(() => setCancelAlerts((alerts) => alerts.filter((a) => a.id !== order.id)), 15000);
+            }
           }
         }
-      }
-      prevOrdersRef.current = new Map(freshKitchen.map((o) => [o.id, o]));
-      setOrders(fresh);
+        prevOrdersRef.current = new Map(mapped.map((o) => [o.id, o]));
+        setOrders(mapped);
+      });
     };
     load();
-    window.addEventListener("storage", load);
     const timer = setInterval(load, 2000);
-    return () => {
-      window.removeEventListener("storage", load);
-      clearInterval(timer);
-    };
-  }, []);
+    return () => clearInterval(timer);
+  }, [authState]);
 
   useEffect(() => {
     const timer = setInterval(() => setNowTick(Date.now()), 1000);
     return () => clearInterval(timer);
   }, []);
 
-  const updateOrder = (order: Order, patch: Partial<Order>) => {
-    const next = readOrders().map((o) => (o.id === order.id ? { ...o, ...patch } : o));
-    writeOrders(next);
-    setOrders(next);
-  };
-
   // Готово — блюдо приготовлено, но заказ остаётся на экране до фактической
   // выдачи. В архив (историю) уходит только после «Отдано».
-  const markCookingDone = (order: Order) => {
+  const markCookingDone = async (order: Order) => {
     playReadyChime();
-    updateOrder(order, { kitchenStatus: "ready" });
+    const { data } = await apiUpdateOrderKitchenStatus(order.id, "ready");
+    if (data) setOrders((prev) => prev.map((o) => (o.id === order.id ? mapOrder(data) : o)));
   };
 
-  const markServed = (order: Order) => {
-    updateOrder(order, {
-      kitchenStatus: "done",
-      status: "completed",
-      completedAt: new Date().toISOString(),
-    });
+  const acceptOrder = async (order: Order) => {
+    const { data } = await apiUpdateOrderKitchenStatus(order.id, "accepted");
+    if (data) setOrders((prev) => prev.map((o) => (o.id === order.id ? mapOrder(data) : o)));
+  };
+
+  const markServed = async (order: Order) => {
+    const { data } = await apiUpdateOrderKitchenStatus(order.id, "done");
+    if (data) setOrders((prev) => prev.map((o) => (o.id === order.id ? mapOrder(data) : o)));
   };
 
   const kitchenOrders = orders.filter(isForKitchen);
@@ -265,7 +269,7 @@ export default function ChefDisplay() {
                     <button
                       className="mt-3 h-11 w-full bg-amber-400 text-sm font-bold uppercase tracking-wide text-black hover:bg-amber-300"
                       type="button"
-                      onClick={() => updateOrder(order, { kitchenStatus: "accepted" })}
+                      onClick={() => acceptOrder(order)}
                     >
                       Принять
                     </button>

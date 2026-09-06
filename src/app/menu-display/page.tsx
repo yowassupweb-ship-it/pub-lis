@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { apiPublicMenuPositions } from "@/lib/api";
 import { PRODUCT_TYPES } from "@/lib/productTypes";
 
 type MenuIngredient = { id: string; typeId: string; amount: string };
@@ -13,8 +14,6 @@ type MenuPosition = {
   ingredients: MenuIngredient[];
 };
 
-const menuStorageKey = "hitry-lis-menu-positions";
-
 function parseNumber(value: string) {
   const n = Number(value.replace(",", "."));
   return Number.isFinite(n) ? n : 0;
@@ -24,6 +23,10 @@ function formatMoney(value: number) {
   return `${Math.round(value).toLocaleString("ru-RU")} ₽`;
 }
 
+// Статический справочник типов используется только для показа названия/
+// единицы ингредиента — сам список позиций меню приходит с бэкенда
+// (GET /api/menu/public, без авторизации). Список типов почти не меняется,
+// поэтому держать его живым (apiProductTypes()) здесь не обязательно.
 function getProductType(typeId: string) {
   return PRODUCT_TYPES.find((t) => t.id === typeId);
 }
@@ -42,22 +45,26 @@ export default function MenuDisplay() {
 
   useEffect(() => {
     const load = () => {
-      const raw = window.localStorage.getItem(menuStorageKey);
-      if (raw) {
-        try {
-          setPositions(JSON.parse(raw) as MenuPosition[]);
-        } catch {
-          // игнорируем битые данные
-        }
-      }
+      apiPublicMenuPositions().then((list) => {
+        if (!list) return;
+        setPositions(
+          list.map((position) => ({
+            id: position.id,
+            name: position.name,
+            price: String(position.price),
+            imageUrl: position.image_url ?? "",
+            ingredients: position.ingredients.map((ingredient, index) => ({
+              id: `${position.id}-${index}`,
+              typeId: ingredient.type_id,
+              amount: String(ingredient.amount),
+            })),
+          })),
+        );
+      });
     };
     load();
-    window.addEventListener("storage", load);
     const timer = setInterval(load, 5000);
-    return () => {
-      window.removeEventListener("storage", load);
-      clearInterval(timer);
-    };
+    return () => clearInterval(timer);
   }, []);
 
   return (

@@ -500,3 +500,365 @@ export const apiApproveBooking = (gameId: string, bookingId: string) =>
 
 export const apiRejectBooking = (gameId: string, bookingId: string) =>
   request<ApiBooking>(`/games/${gameId}/bookings/${bookingId}/reject`, { method: "POST" });
+
+// ── Склад: типы товаров, товары, партии ─────────────────────────────────
+
+export type ApiProductType = { id: string; name: string; unit: string };
+
+export type ApiBatch = {
+  id: string;
+  packs: number;
+  remaining_amount: number;
+  total_price: number | null;
+  received_at: string;
+  expires_at: string;
+  shelf_life_days: number;
+};
+
+export type ApiProduct = {
+  id: string;
+  type_id: string;
+  name: string;
+  normalized_name: string;
+  package_size: number;
+  stock_unit: string;
+  shelf_life_days: number;
+  batches: ApiBatch[];
+};
+
+export type ManualProductPayload = {
+  name: string;
+  type_id: string;
+  package_size: number;
+  stock_unit: string;
+  shelf_life_days: number;
+  packs: number;
+  total_price?: number | null;
+  received_at?: string;
+};
+
+export type ApiPurchase = {
+  id: string;
+  supplier: string | null;
+  source_text: string;
+  received_at: string;
+  item_count: number;
+  total: number;
+  created_at: string;
+};
+
+export type PurchaseItemPayload = {
+  name: string;
+  type_id: string;
+  package_size: number;
+  stock_unit: string;
+  shelf_life_days: number;
+  packs: number;
+  total_price?: number | null;
+};
+
+export type PurchaseCreatePayload = {
+  supplier?: string;
+  source_text: string;
+  received_at?: string;
+  items: PurchaseItemPayload[];
+};
+
+export type ApiWriteOff = {
+  id: string;
+  product_id: string;
+  product_name: string;
+  batch_id: string;
+  amount: number;
+  unit: string;
+  reason: string;
+  value: number;
+  created_at: string;
+};
+
+export const apiProductTypes = () => request<ApiProductType[]>("/warehouse/product-types");
+
+export const apiCreateProductType = (payload: { id: string; name: string; unit: string }) =>
+  requestWithError<ApiProductType>("/warehouse/product-types", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+
+export const apiProducts = () => request<ApiProduct[]>("/warehouse/products");
+
+export const apiAddManualProduct = (payload: ManualProductPayload) =>
+  requestWithError<ApiProduct>("/warehouse/products", { method: "POST", body: JSON.stringify(payload) });
+
+export const apiUpdateProduct = (
+  productId: string,
+  payload: { package_size?: number; shelf_life_days?: number },
+) =>
+  requestWithError<ApiProduct>(`/warehouse/products/${productId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+
+export const apiUpdateBatch = (
+  productId: string,
+  batchId: string,
+  payload: { packs?: number; remaining_amount?: number; received_at?: string; shelf_life_days?: number },
+) =>
+  requestWithError<ApiProduct>(`/warehouse/products/${productId}/batches/${batchId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+
+// ── Импорт/экспорт склада в JSON (бэкап, перенос между окружениями) ────────
+// Экспорт — отдельного эндпоинта нет, экспортируется уже загруженный
+// apiProducts() на клиенте. Импорт принимает ровно тот же формат обратно
+// (round-trip): матчит товары по normalized_name, добавляет партии.
+
+export type BatchImportPayload = {
+  packs: number;
+  remaining_amount?: number | null;
+  total_price?: number | null;
+  received_at?: string | null;
+  shelf_life_days?: number | null;
+};
+
+export type ProductImportPayload = {
+  name: string;
+  type_id: string;
+  package_size?: number;
+  stock_unit?: string;
+  shelf_life_days?: number;
+  batches?: BatchImportPayload[];
+};
+
+export type ApiProductsImportResult = {
+  products_created: number;
+  products_matched: number;
+  batches_created: number;
+};
+
+export const apiImportProducts = (products: ProductImportPayload[]) =>
+  requestWithError<ApiProductsImportResult>("/warehouse/products/import", {
+    method: "POST",
+    body: JSON.stringify({ products }),
+  });
+
+export const apiPurchases = () => request<ApiPurchase[]>("/warehouse/purchases");
+
+export const apiCreatePurchase = (payload: PurchaseCreatePayload) =>
+  requestWithError<ApiPurchase>("/warehouse/purchases", { method: "POST", body: JSON.stringify(payload) });
+
+export const apiWriteOffs = () => request<ApiWriteOff[]>("/warehouse/write-offs");
+
+export const apiCreateWriteOff = (payload: {
+  product_id: string;
+  batch_id: string;
+  amount: number;
+  reason: string;
+}) => requestWithError<ApiWriteOff>("/warehouse/write-offs", { method: "POST", body: JSON.stringify(payload) });
+
+// ── Меню ─────────────────────────────────────────────────────────────────
+
+export type ApiMenuCategory = { id: string; name: string; sort_order: number };
+
+export type ApiMenuIngredient = {
+  id: string;
+  type_id: string;
+  alt_type_ids: string[];
+  amount: number;
+};
+
+export type ApiMenuPosition = {
+  id: string;
+  category_id: string | null;
+  name: string;
+  price: number;
+  image_url: string | null;
+  order_step: number | null;
+  order_unit: string | null;
+  comment: string;
+  is_active: boolean;
+  ingredients: ApiMenuIngredient[];
+};
+
+export type ApiPublicMenuPosition = {
+  id: string;
+  category_id: string | null;
+  name: string;
+  price: number;
+  image_url: string | null;
+  order_step: number | null;
+  order_unit: string | null;
+  ingredients: { type_id: string; amount: number }[];
+};
+
+export type MenuIngredientPayload = { type_id: string; alt_type_ids?: string[]; amount: number };
+
+export type MenuPositionPayload = {
+  name: string;
+  price: number;
+  category_id?: string | null;
+  image_url?: string | null;
+  order_step?: number | null;
+  order_unit?: string | null;
+  comment?: string;
+  is_active?: boolean;
+  ingredients: MenuIngredientPayload[];
+};
+
+export const apiMenuCategories = () => request<ApiMenuCategory[]>("/menu/categories");
+
+export const apiCreateMenuCategory = (name: string) =>
+  requestWithError<ApiMenuCategory>("/menu/categories", { method: "POST", body: JSON.stringify({ name }) });
+
+export const apiUpdateMenuCategory = (categoryId: string, name: string) =>
+  requestWithError<ApiMenuCategory>(`/menu/categories/${categoryId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ name }),
+  });
+
+export const apiDeleteMenuCategory = (categoryId: string) =>
+  requestWithError<null>(`/menu/categories/${categoryId}`, { method: "DELETE" });
+
+export const apiMenuPositions = () => request<ApiMenuPosition[]>("/menu/positions");
+
+export const apiPublicMenuPositions = () => request<ApiPublicMenuPosition[]>("/menu/public");
+
+export const apiCreateMenuPosition = (payload: MenuPositionPayload) =>
+  requestWithError<ApiMenuPosition>("/menu/positions", { method: "POST", body: JSON.stringify(payload) });
+
+export const apiUpdateMenuPosition = (positionId: string, payload: MenuPositionPayload) =>
+  requestWithError<ApiMenuPosition>(`/menu/positions/${positionId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+
+export const apiDeleteMenuPosition = (positionId: string) =>
+  requestWithError<null>(`/menu/positions/${positionId}`, { method: "DELETE" });
+
+// ── Импорт/экспорт позиций меню в JSON ──────────────────────────────────────
+// Раздел адресуется по имени (category_name), не по id — id не переносится
+// между окружениями. Экспорт можно скормить обратно в импорт как есть.
+
+export type MenuPositionExportPayload = {
+  name: string;
+  price: number;
+  category_name: string | null;
+  image_url: string | null;
+  order_step: number | null;
+  order_unit: string | null;
+  comment: string;
+  is_active: boolean;
+  ingredients: MenuIngredientPayload[];
+};
+
+export type ApiMenuPositionsImportResult = {
+  positions_created: number;
+  positions_updated: number;
+  categories_created: number;
+};
+
+export const apiExportMenuPositions = () => request<MenuPositionExportPayload[]>("/menu/positions/export");
+
+export const apiImportMenuPositions = (positions: MenuPositionExportPayload[]) =>
+  requestWithError<ApiMenuPositionsImportResult>("/menu/positions/import", {
+    method: "POST",
+    body: JSON.stringify({ positions }),
+  });
+
+// ── Заказы ───────────────────────────────────────────────────────────────
+
+export type ApiOrderRoute = "kitchen" | "self";
+export type ApiOrderStatus = "active" | "completed" | "cancelled";
+export type ApiKitchenStatus = "new" | "accepted" | "ready" | "done";
+
+export type ApiOrderLineIngredient = {
+  type_id: string;
+  name: string;
+  amount_label: string;
+  raw_amount: number;
+};
+
+export type ApiOrderLine = {
+  id: string;
+  menu_position_id: string | null;
+  name: string;
+  price: number;
+  quantity: number;
+  comment: string | null;
+  ingredients: ApiOrderLineIngredient[];
+};
+
+export type ApiOrder = {
+  id: string;
+  number: number;
+  created_at: string;
+  completed_at: string | null;
+  status: ApiOrderStatus;
+  kitchen_status: ApiKitchenStatus;
+  route: ApiOrderRoute;
+  guest_id: string | null;
+  guest_name: string | null;
+  total: number;
+  items: ApiOrderLine[];
+};
+
+export type OrderLinePayload = {
+  menu_position_id?: string | null;
+  name: string;
+  price: number;
+  quantity: number;
+  comment?: string | null;
+};
+
+export type OrderCreatePayload = {
+  route: ApiOrderRoute;
+  guest_id?: string | null;
+  guest_name?: string | null;
+  items: OrderLinePayload[];
+};
+
+export const apiOrders = (params?: {
+  route?: ApiOrderRoute;
+  status?: ApiOrderStatus;
+  date_from?: string;
+  date_to?: string;
+}) => {
+  const qs = new URLSearchParams();
+  if (params?.route) qs.set("route", params.route);
+  if (params?.status) qs.set("status", params.status);
+  if (params?.date_from) qs.set("date_from", params.date_from);
+  if (params?.date_to) qs.set("date_to", params.date_to);
+  const suffix = qs.toString() ? `?${qs}` : "";
+  return request<ApiOrder[]>(`/orders${suffix}`);
+};
+
+export const apiCreateOrder = (payload: OrderCreatePayload) =>
+  requestWithError<ApiOrder>("/orders", { method: "POST", body: JSON.stringify(payload) });
+
+export const apiUpdateOrderKitchenStatus = (orderId: string, kitchen_status: ApiKitchenStatus) =>
+  requestWithError<ApiOrder>(`/orders/${orderId}/kitchen-status`, {
+    method: "PATCH",
+    body: JSON.stringify({ kitchen_status }),
+  });
+
+export const apiCancelOrder = (orderId: string) =>
+  requestWithError<ApiOrder>(`/orders/${orderId}/cancel`, { method: "POST" });
+
+export const apiEditOrder = (orderId: string, items: OrderLinePayload[]) =>
+  requestWithError<ApiOrder>(`/orders/${orderId}`, { method: "PATCH", body: JSON.stringify({ items }) });
+
+// ── Журнал действий склада ───────────────────────────────────────────────
+
+export type ApiActivityLogEntry = {
+  id: string;
+  actor_id: string | null;
+  actor_name: string | null;
+  action: string;
+  entity: string;
+  entity_id: string | null;
+  payload: Record<string, unknown>;
+  created_at: string;
+};
+
+export const apiWarehouseActivity = (limit = 1000) =>
+  request<ApiActivityLogEntry[]>(`/warehouse/activity?limit=${limit}`);
