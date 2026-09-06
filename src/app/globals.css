@@ -43,6 +43,31 @@ button {
   font-family: Georgia, "Times New Roman", serif;
 }
 
+/* /menu-board: мерцание ламп/свечей — 5 кадров одной сцены, наложены друг на
+   друга слоями и плавно перекрёстно затухают/проявляются (не жёсткая смена
+   background-image, а анимация opacity — она интерполируется браузером
+   нормально). Каждый слой сдвинут по времени на 1/5 общего цикла. */
+@keyframes menu-board-crossfade {
+  0%,
+  100% {
+    opacity: 0;
+  }
+  8% {
+    opacity: 1;
+  }
+  28% {
+    opacity: 1;
+  }
+  36% {
+    opacity: 0;
+  }
+}
+
+.menu-board-bg-layer {
+  animation: menu-board-crossfade 9s ease-in-out infinite;
+  opacity: 0;
+}
+
 /* ===== «Таверна» — тема игровой части (расписание, брони, кабинет) ===== */
 .tavern-bg {
   min-height: 100vh;
