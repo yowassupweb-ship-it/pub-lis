@@ -21,6 +21,15 @@ class ProductTypeCreate(BaseModel):
     unit: str = Field(min_length=1, max_length=16)
 
 
+class ProductTypesImportRequest(BaseModel):
+    product_types: list[ProductTypeCreate] = Field(min_length=1, max_length=500)
+
+
+class ProductTypesImportResult(BaseModel):
+    created: int
+    skipped: int
+
+
 # ── Склад: товары и партии ──────────────────────────────────────────────────
 
 

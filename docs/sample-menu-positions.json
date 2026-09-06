@@ -1,0 +1,193 @@
+{
+  "_comment": "Тестовый набор из 15 позиций — примеры использования формата рецептов для импорта через /staff → Позиции → «Импорт JSON» (эндпоинт POST /api/menu/positions/import, тот же формат отдаёт GET /api/menu/positions/export). Фото — временные стоковые ссылки для наглядности, замените на реальные после запуска (кнопка «Добавить фото» в карточке позиции грузит их на сервер и подставляет свой url).",
+  "positions": [
+    {
+      "name": "Чизбургер",
+      "price": 350,
+      "category_name": "Бургеры",
+      "image_url": "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=800&q=80",
+      "order_step": null,
+      "order_unit": null,
+      "comment": "Булочку подрумянить 20-30 сек с обеих сторон. Бекон — до хруста, не сырой в середине.",
+      "is_active": true,
+      "ingredients": [
+        { "type_id": "type-burger-bun", "alt_type_ids": [], "amount": 1 },
+        { "type_id": "type-bacon", "alt_type_ids": [], "amount": 0.08 },
+        { "type_id": "type-cheese-sauce", "alt_type_ids": [], "amount": 0.03 }
+      ]
+    },
+    {
+      "name": "Бекон-бургер BBQ",
+      "price": 390,
+      "category_name": "Бургеры",
+      "image_url": "https://images.unsplash.com/photo-1553979459-d2229ba7433b?w=800&q=80",
+      "order_step": null,
+      "order_unit": null,
+      "comment": "Пример замены соуса: если нет BBQ — предложи гостю чесночный или горчичный, не переспрашивай на кассе.",
+      "is_active": true,
+      "ingredients": [
+        { "type_id": "type-burger-bun", "alt_type_ids": [], "amount": 1 },
+        { "type_id": "type-bacon", "alt_type_ids": [], "amount": 0.1 },
+        { "type_id": "type-bbq-sauce", "alt_type_ids": ["type-garlic-sauce", "type-mustard-sauce"], "amount": 0.03 },
+        { "type_id": "type-dried-onion", "alt_type_ids": [], "amount": 0.01 }
+      ]
+    },
+    {
+      "name": "Гриль-бургер (черновик)",
+      "price": 370,
+      "category_name": "Бургеры",
+      "image_url": null,
+      "order_step": null,
+      "order_unit": null,
+      "comment": "Пример позиции без фото — карточка покажет плейсхолдер вместо картинки, это нормально до загрузки реального фото.",
+      "is_active": true,
+      "ingredients": [
+        { "type_id": "type-burger-bun", "alt_type_ids": [], "amount": 1 },
+        { "type_id": "type-caesar-sauce", "alt_type_ids": [], "amount": 0.03 }
+      ]
+    },
+    {
+      "name": "Картофель фри",
+      "price": 220,
+      "category_name": "Закуски",
+      "image_url": "https://images.unsplash.com/photo-1573080496219-bb080dd4f877?w=800&q=80",
+      "order_step": null,
+      "order_unit": null,
+      "comment": "Кетчуп и соусы — отдельно на столе, не класть в общую тарелку.",
+      "is_active": true,
+      "ingredients": [{ "type_id": "type-fries", "alt_type_ids": [], "amount": 0.25 }]
+    },
+    {
+      "name": "Картофельные дольки со специями",
+      "price": 230,
+      "category_name": "Закуски",
+      "image_url": "https://images.unsplash.com/photo-1541592106381-b31e9677c0e5?w=800&q=80",
+      "order_step": null,
+      "order_unit": null,
+      "comment": "Досаливать не нужно — уже в панировке.",
+      "is_active": true,
+      "ingredients": [{ "type_id": "type-potato-wedges", "alt_type_ids": [], "amount": 0.3 }]
+    },
+    {
+      "name": "Луковые кольца",
+      "price": 210,
+      "category_name": "Закуски",
+      "image_url": "https://images.unsplash.com/photo-1639024471283-03518883512d?w=800&q=80",
+      "order_step": null,
+      "order_unit": null,
+      "comment": "Подавать сразу — быстро теряют хруст.",
+      "is_active": true,
+      "ingredients": [{ "type_id": "type-onion-rings", "alt_type_ids": [], "amount": 0.2 }]
+    },
+    {
+      "name": "Рыбные палочки",
+      "price": 260,
+      "category_name": "Закуски",
+      "image_url": "https://images.unsplash.com/photo-1580217593608-61931cefc821?w=800&q=80",
+      "order_step": null,
+      "order_unit": null,
+      "comment": "Соус тартар в программе не учитывается — выдаётся отдельно из холодильника.",
+      "is_active": true,
+      "ingredients": [{ "type_id": "type-fish-sticks", "alt_type_ids": [], "amount": 0.25 }]
+    },
+    {
+      "name": "Кольца кальмара",
+      "price": 320,
+      "category_name": "Закуски",
+      "image_url": "https://images.unsplash.com/photo-1599487488170-d11ec9c172f0?w=800&q=80",
+      "order_step": null,
+      "order_unit": null,
+      "comment": "Жарить до золотистого цвета, передержишь — станут резиновыми.",
+      "is_active": true,
+      "ingredients": [{ "type_id": "type-calamari", "alt_type_ids": [], "amount": 0.2 }]
+    },
+    {
+      "name": "Куриные крылья BBQ",
+      "price": 340,
+      "category_name": "Закуски",
+      "image_url": "https://images.unsplash.com/photo-1608039755401-742074f0548d?w=800&q=80",
+      "order_step": null,
+      "order_unit": null,
+      "comment": "Соусом покрывать непосредственно перед подачей, не заранее — размокнут.",
+      "is_active": true,
+      "ingredients": [
+        { "type_id": "type-chicken-wings", "alt_type_ids": [], "amount": 0.35 },
+        { "type_id": "type-bbq-sauce", "alt_type_ids": ["type-garlic-sauce"], "amount": 0.05 }
+      ]
+    },
+    {
+      "name": "Цезарь-ролл с беконом",
+      "price": 300,
+      "category_name": "Закуски",
+      "image_url": "https://images.unsplash.com/photo-1550304943-4f24f54ddde9?w=800&q=80",
+      "order_step": null,
+      "order_unit": null,
+      "comment": "Огурец резать тонко, соус — по спирали сверху, не смешивать заранее.",
+      "is_active": true,
+      "ingredients": [
+        { "type_id": "type-bacon", "alt_type_ids": [], "amount": 0.05 },
+        { "type_id": "type-caesar-sauce", "alt_type_ids": [], "amount": 0.04 },
+        { "type_id": "type-pickled-cucumber", "alt_type_ids": [], "amount": 0.03 }
+      ]
+    },
+    {
+      "name": "Пиво лагер разливное 0.5",
+      "price": 280,
+      "category_name": "Напитки",
+      "image_url": "https://images.unsplash.com/photo-1608270586620-248524c67de9?w=800&q=80",
+      "order_step": 0.5,
+      "order_unit": "л",
+      "comment": "Наливать под углом 45°, пена — не больше 2 см, без пауз на дозаливку.",
+      "is_active": true,
+      "ingredients": [{ "type_id": "type-draft-lager", "alt_type_ids": [], "amount": 0.5 }]
+    },
+    {
+      "name": "Пиво IPA разливное 0.3",
+      "price": 250,
+      "category_name": "Напитки",
+      "image_url": "https://images.unsplash.com/photo-1587574293340-e0011c4e8ecf?w=800&q=80",
+      "order_step": 0.3,
+      "order_unit": "л",
+      "comment": "Пример альтернативного типа: если IPA закончилось — программа предложит списать со стаута, спроси гостя перед заменой.",
+      "is_active": true,
+      "ingredients": [{ "type_id": "type-draft-ipa", "alt_type_ids": ["type-draft-stout"], "amount": 0.3 }]
+    },
+    {
+      "name": "Пиво стаут разливное 0.4",
+      "price": 270,
+      "category_name": "Напитки",
+      "image_url": "https://images.unsplash.com/photo-1584225064785-c62a8b43d148?w=800&q=80",
+      "order_step": 0.4,
+      "order_unit": "л",
+      "comment": "Стаут отстаивается — не спешить с выдачей сразу после налива, дать 30 сек на пену.",
+      "is_active": true,
+      "ingredients": [{ "type_id": "type-draft-stout", "alt_type_ids": [], "amount": 0.4 }]
+    },
+    {
+      "name": "Вода негазированная 0.5",
+      "price": 120,
+      "category_name": "Напитки",
+      "image_url": "https://images.unsplash.com/photo-1616118132534-381148898bb4?w=800&q=80",
+      "order_step": null,
+      "order_unit": null,
+      "comment": "Держать в холодильнике за баром, не выносить из зала.",
+      "is_active": true,
+      "ingredients": [{ "type_id": "type-plastic-bottle-05", "alt_type_ids": [], "amount": 1 }]
+    },
+    {
+      "name": "Дегустационный сет (тест, скрыт)",
+      "price": 0,
+      "category_name": null,
+      "image_url": "https://images.unsplash.com/photo-1541542684-4a9c2d3c8e35?w=800&q=80",
+      "order_step": null,
+      "order_unit": null,
+      "comment": "Служебная позиция для проверки is_active=false и позиции без раздела — в реальное меню/кассу не должна попадать.",
+      "is_active": false,
+      "ingredients": [
+        { "type_id": "type-fries", "alt_type_ids": [], "amount": 0.1 },
+        { "type_id": "type-onion-rings", "alt_type_ids": [], "amount": 0.05 },
+        { "type_id": "type-calamari", "alt_type_ids": [], "amount": 0.05 }
+      ]
+    }
+  ]
+}

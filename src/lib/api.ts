@@ -584,6 +584,14 @@ export const apiCreateProductType = (payload: { id: string; name: string; unit: 
     body: JSON.stringify(payload),
   });
 
+export type ApiProductTypesImportResult = { created: number; skipped: number };
+
+export const apiImportProductTypes = (productTypes: { id: string; name: string; unit: string }[]) =>
+  requestWithError<ApiProductTypesImportResult>("/warehouse/product-types/import", {
+    method: "POST",
+    body: JSON.stringify({ product_types: productTypes }),
+  });
+
 export const apiProducts = () => request<ApiProduct[]>("/warehouse/products");
 
 export const apiAddManualProduct = (payload: ManualProductPayload) =>

@@ -39,6 +39,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   STAFF_ROLES,
   apiAddManualProduct,
+  apiCreateProductType,
   apiAuditEvents,
   apiCancelOrder,
   apiCreateGuest,
@@ -54,6 +55,7 @@ import {
   apiExportMenuPositions,
   apiGuests,
   apiImportMenuPositions,
+  apiImportProductTypes,
   apiImportProducts,
   apiLogout,
   apiMe,
@@ -108,7 +110,7 @@ type ActiveSection =
   | "events"
   | "stats"
   | "audit";
-type WarehouseTab = "purchases" | "products" | "write-offs";
+type WarehouseTab = "purchases" | "products" | "write-offs" | "ingredients";
 
 type ParsedItem = {
   id: string;
@@ -774,8 +776,16 @@ export default function StaffApp() {
   const [editingCategoryName, setEditingCategoryName] = useState("");
   const [expandedProductId, setExpandedProductId] = useState<string | null>(null);
   const [expandedPurchaseId, setExpandedPurchaseId] = useState<string | null>(null);
+  const [expandedTypeId, setExpandedTypeId] = useState<string | null>(null);
+  const [selectedTypeIds, setSelectedTypeIds] = useState<Set<string>>(new Set());
   const [isPurchaseModalOpen, setIsPurchaseModalOpen] = useState(false);
   const [isProductModalOpen, setIsProductModalOpen] = useState(false);
+  const [isTypeModalOpen, setIsTypeModalOpen] = useState(false);
+  const [newTypeName, setNewTypeName] = useState("");
+  const [newTypeId, setNewTypeId] = useState("");
+  const [newTypeIdTouched, setNewTypeIdTouched] = useState(false);
+  const [newTypeUnit, setNewTypeUnit] = useState("шт");
+  const [newTypeError, setNewTypeError] = useState<string | null>(null);
   const [isPositionModalOpen, setIsPositionModalOpen] = useState(false);
   const [editingPositionId, setEditingPositionId] = useState<string | null>(null);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
@@ -1057,6 +1067,234 @@ export default function StaffApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [products, productTypes, listQuery]);
 
+  // Ингредиент = "папка": один type_id может объединять несколько разных
+  // товаров (разные поставщики/фасовки одного и того же по сути товара).
+  // Склад автоматически списывает/суммирует остаток по всем товарам папки.
+  const listIngredientGroups = useMemo(() => {
+    const query = listQuery.trim().toLowerCase();
+    const byType = new Map<string, Product[]>();
+    for (const product of products) {
+      const list = byType.get(product.typeId) ?? [];
+      list.push(product);
+      byType.set(product.typeId, list);
+    }
+    return productTypes
+      .map((type) => ({ type, products: byType.get(type.id) ?? [] }))
+      .filter(
+        (group) => !query || `${group.type.name} ${group.products.map((p) => p.name).join(" ")}`.toLowerCase().includes(query),
+      )
+      .sort((a, b) => a.type.name.localeCompare(b.type.name, "ru"));
+  }, [products, productTypes, listQuery]);
+
+  const renderProductRow = (product: Product) => {
+    const type = getProductType(product.typeId);
+    const lastBatch = product.batches.at(-1);
+    const lastUnitPrice = lastBatch ? getBatchUnitPrice(product, lastBatch) : null;
+    const amount = getProductAvailableAmount(product);
+    const expiredAmount = getProductExpiredAmount(product);
+    const packageSize = Number.isFinite(product.packageSize) ? product.packageSize : 0;
+    return (
+      <div key={product.id}>
+        <button
+          className="grid w-full gap-3 p-4 text-left lg:grid-cols-[minmax(0,1fr)_130px_150px_130px_40px]"
+          type="button"
+          onClick={() => setExpandedProductId(expandedProductId === product.id ? null : product.id)}
+        >
+          <span className="min-w-0">
+            <span className="block truncate font-medium">{product.name}</span>
+            <span className="mt-1 block truncate text-xs text-zinc-500">{type?.name ?? "Тип не указан"}</span>
+          </span>
+          <span className="text-sm text-zinc-400">
+            {formatAmount(amount)} {product.stockUnit}
+            {expiredAmount > 0 && (
+              <span className="mt-1 block text-xs text-rose-400">
+                просрочено {formatAmount(expiredAmount)} {product.stockUnit}
+              </span>
+            )}
+          </span>
+          <span className="text-sm text-zinc-400">
+            {formatAmount(packageSize)} {product.stockUnit} / уп.
+          </span>
+          <span className="text-sm text-zinc-400">
+            {lastUnitPrice === null ? "без цены" : `${formatMoney(lastUnitPrice)} / ${product.stockUnit}`}
+          </span>
+          <ChevronDown
+            className={`size-4 text-zinc-500 transition ${expandedProductId === product.id ? "rotate-180" : ""}`}
+          />
+        </button>
+
+        {expandedProductId === product.id && (
+          <div className="space-y-3 border-t border-white/8 bg-[#17181b] p-4">
+            <div className="grid gap-3 md:grid-cols-[minmax(220px,420px)_220px_130px_120px_160px]">
+              <Field label="Название товара" hint="Меняется только через новую закупку — бэкенд не поддерживает переименование товара">
+                <input
+                  className="h-10 w-full min-w-0 rounded-xl border border-white/8 bg-[#111214] px-3 text-sm text-zinc-400 outline-none"
+                  value={product.name}
+                  readOnly
+                />
+              </Field>
+              <Field label="Тип расхода" hint="Задаётся при создании товара — бэкенд не поддерживает смену типа">
+                <DarkSelect
+                  value={product.typeId}
+                  options={productTypes.map((item) => ({ id: item.id, label: item.name }))}
+                  onChange={() => {}}
+                  disabled
+                />
+              </Field>
+              <Field label="Фасовка" hint="Сколько единиц расхода в одной упаковке">
+                <input
+                  className="h-10 w-full min-w-0 rounded-xl border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
+                  inputMode="decimal"
+                  value={product.packageSize}
+                  onChange={(event) =>
+                    updateProductPackageSize(product.id, Math.max(0, parseNumber(event.target.value)))
+                  }
+                />
+              </Field>
+              <Field label="Ед. расхода" hint="Задаётся при создании товара — бэкенд не поддерживает смену единицы">
+                <input
+                  className="h-10 w-full min-w-0 rounded-xl border border-white/8 bg-[#111214] px-3 text-sm text-zinc-400 outline-none"
+                  value={product.stockUnit}
+                  readOnly
+                />
+              </Field>
+              <Field label="Срок по умолчанию, дн." hint="Подставляется новым партиям этого товара">
+                <input
+                  className="h-10 w-full min-w-0 rounded-xl border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
+                  inputMode="numeric"
+                  value={product.shelfLifeDays}
+                  onChange={(event) => updateProductShelfLifeDays(product.id, event.target.value)}
+                />
+              </Field>
+            </div>
+
+            {product.batches.length === 0 ? (
+              <div className="grid min-h-20 place-items-center rounded-xl border border-white/8 bg-[#111214]">
+                <Archive className="size-5 text-zinc-600" />
+              </div>
+            ) : (
+              product.batches.map((batch) => {
+                const percent = shelfPercent(batch);
+                const batchAmount = getBatchAmount(product, batch);
+                const batchUnitPrice = getBatchUnitPrice(product, batch);
+                const expired = isBatchExpired(batch);
+                const spent = batch.remainingAmount <= 0;
+                return (
+                  <div key={batch.id} className="space-y-3 rounded-xl border border-white/8 bg-[#111214] p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                      <span className="flex items-center gap-2">
+                        <span>
+                          Партия: {formatAmount(batch.remainingAmount)} из {formatAmount(batchAmount)}{" "}
+                          {product.stockUnit}, {formatAmount(batch.packs)} уп.
+                        </span>
+                        {expired && (
+                          <span className="rounded bg-rose-500/15 px-2 py-0.5 text-xs text-rose-300">просрочено</span>
+                        )}
+                        {!expired && spent && (
+                          <span className="rounded bg-white/6 px-2 py-0.5 text-xs text-zinc-400">израсходовано</span>
+                        )}
+                      </span>
+                      <span className="text-zinc-500">
+                        закуплено {batch.receivedAt}, годен до {batch.expiresAt}
+                      </span>
+                      <span className="text-zinc-400">
+                        {batchUnitPrice === null ? "без цены" : `${formatMoney(batchUnitPrice)} / ${product.stockUnit}`}
+                      </span>
+                      <button
+                        className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-xl border border-white/8 px-3 text-xs text-zinc-300 hover:bg-[#25272c] disabled:cursor-not-allowed disabled:opacity-40"
+                        type="button"
+                        disabled={spent}
+                        onClick={() => {
+                          setWriteOffTarget({ product, batch });
+                          setWriteOffAmount(String(formatAmount(batch.remainingAmount)));
+                          setWriteOffReason(WRITE_OFF_REASONS[0]);
+                          setWriteOffCustomReason("");
+                          setWriteOffFormError(null);
+                        }}
+                      >
+                        <Trash2 className="size-3.5" />
+                        Списать
+                      </button>
+                    </div>
+                    <div className="grid gap-2 md:grid-cols-[110px_130px_140px_150px_110px_150px]">
+                      <Field label="Упаковок" hint="Сколько упаковок пришло в этой партии">
+                        <input
+                          className="h-9 w-full min-w-0 rounded-xl border border-white/8 bg-[#17181b] px-3 text-sm outline-none focus:border-zinc-400"
+                          inputMode="decimal"
+                          value={batch.packs}
+                          onChange={(event) =>
+                            updateProductBatch(product.id, batch.id, { packs: parseNumber(event.target.value) })
+                          }
+                        />
+                      </Field>
+                      <Field label={`Остаток, ${product.stockUnit}`} hint="Сколько реально осталось от партии">
+                        <input
+                          className="h-9 w-full min-w-0 rounded-xl border border-white/8 bg-[#17181b] px-3 text-sm outline-none focus:border-zinc-400"
+                          inputMode="decimal"
+                          value={batch.remainingAmount}
+                          onChange={(event) =>
+                            updateProductBatch(product.id, batch.id, {
+                              remainingAmount: Math.max(0, parseNumber(event.target.value)),
+                            })
+                          }
+                        />
+                      </Field>
+                      <Field label="Цена партии, ₽" hint="Сумма по чеку — бэкенд не поддерживает правку цены после создания партии">
+                        <input
+                          className="h-9 w-full min-w-0 rounded-xl border border-white/8 bg-[#17181b] px-3 text-sm text-zinc-400 outline-none"
+                          value={batch.totalPrice ?? "без цены"}
+                          readOnly
+                        />
+                      </Field>
+                      <Field label="Дата закупки" hint="От неё считается срок годности">
+                        <input
+                          className="h-9 w-full min-w-0 rounded-xl border border-white/8 bg-[#17181b] px-3 text-sm outline-none focus:border-zinc-400"
+                          type="date"
+                          value={batch.receivedAt}
+                          onChange={(event) => updateProductBatch(product.id, batch.id, { receivedAt: event.target.value })}
+                        />
+                      </Field>
+                      <Field label="Срок, дн." hint="Сколько дней партия годна с даты закупки">
+                        <input
+                          className="h-9 w-full min-w-0 rounded-xl border border-white/8 bg-[#17181b] px-3 text-sm outline-none focus:border-zinc-400"
+                          inputMode="numeric"
+                          value={batch.shelfLifeDays}
+                          onChange={(event) =>
+                            updateProductBatch(product.id, batch.id, { shelfLifeDays: numericInput(event.target.value) })
+                          }
+                        />
+                      </Field>
+                      <Field label="Годен до" hint="Реальная дата с упаковки: свежая партия или уже уставшая">
+                        <input
+                          className="h-9 w-full min-w-0 rounded-xl border border-white/8 bg-[#17181b] px-3 text-sm outline-none focus:border-zinc-400"
+                          type="date"
+                          value={batch.expiresAt}
+                          onChange={(event) =>
+                            updateProductBatch(product.id, batch.id, {
+                              shelfLifeDays: String(Math.max(0, daysBetween(batch.receivedAt, event.target.value))),
+                            })
+                          }
+                        />
+                      </Field>
+                    </div>
+                    <div className="mt-3 h-2 rounded-full bg-zinc-800">
+                      <div
+                        className={`h-2 rounded-full ${
+                          percent <= 25 ? "bg-red-400" : percent <= 50 ? "bg-amber-300" : "bg-emerald-400"
+                        }`}
+                        style={{ width: `${percent}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const getPurchaseBatches = (purchase: PurchaseRecord) =>
     products
       .flatMap((product) =>
@@ -1333,6 +1571,109 @@ export default function StaffApp() {
     setIsProductModalOpen(false);
     setActiveSection("warehouse");
     setActiveTab("products");
+  };
+
+  const slugifyTypeId = (name: string) =>
+    "type-" +
+    name
+      .toLowerCase()
+      .replaceAll("ё", "е")
+      .replace(/[^\p{L}\p{N}]+/gu, "-")
+      .replace(/^-+|-+$/g, "");
+
+  const createProductType = async () => {
+    const name = newTypeName.trim();
+    const id = (newTypeId.trim() || slugifyTypeId(name)).trim();
+    const unit = newTypeUnit.trim();
+    if (!name) {
+      setNewTypeError("Укажите название ингредиента");
+      return;
+    }
+    if (!id || id === "type-") {
+      setNewTypeError("Укажите id (латиницей) — не удалось собрать его из названия");
+      return;
+    }
+    if (!unit) {
+      setNewTypeError("Укажите единицу измерения");
+      return;
+    }
+    if (productTypes.some((type) => type.id === id)) {
+      setNewTypeError("Ингредиент с таким id уже существует");
+      return;
+    }
+    const { data, error } = await apiCreateProductType({ id, name, unit });
+    if (error || !data) {
+      setNewTypeError(error ?? "Не удалось создать ингредиент");
+      return;
+    }
+    setProductTypes((prev) => [...prev, data]);
+    setIsTypeModalOpen(false);
+  };
+
+  // Экспорт/импорт справочника ингредиентов (product_types) — отдельно от
+  // экспорта товаров/остатков: это компактный список "какие ингредиенты
+  // вообще есть в системе и сколько их сейчас на складе", нужен как
+  // структурная подсказка для GPT при написании рецептов (какие type_id
+  // валидны, что реально в наличии). Если что-то отмечено чекбоксами —
+  // выгружаем только это, иначе — все ингредиенты.
+  const exportIngredientTypesJson = () => {
+    const idsToExport = selectedTypeIds.size > 0 ? selectedTypeIds : new Set(productTypes.map((t) => t.id));
+    const ingredients = productTypes
+      .filter((type) => idsToExport.has(type.id))
+      .map((type) => ({
+        id: type.id,
+        name: type.name,
+        unit: type.unit,
+        available_amount: Math.round(getTypeAvailableAmount(type.id) * 1000) / 1000,
+      }));
+    const blob = new Blob([JSON.stringify({ ingredients }, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `ingredients-export-${today()}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const importIngredientTypesFromFile = async (file: File) => {
+    const text = await file.text();
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      window.alert("Файл повреждён или это не JSON");
+      return;
+    }
+    const rawItems = Array.isArray(parsed)
+      ? parsed
+      : parsed && typeof parsed === "object" && Array.isArray((parsed as { ingredients?: unknown }).ingredients)
+        ? (parsed as { ingredients: unknown[] }).ingredients
+        : parsed && typeof parsed === "object" && Array.isArray((parsed as { product_types?: unknown }).product_types)
+          ? (parsed as { product_types: unknown[] }).product_types
+          : null;
+    if (!rawItems) {
+      window.alert("Неверный формат файла: ожидался массив ингредиентов или объект {ingredients: [...]}");
+      return;
+    }
+    const items = rawItems
+      .filter((item): item is { id: string; name: string; unit: string } => {
+        const rec = item as Record<string, unknown>;
+        return typeof rec?.id === "string" && typeof rec?.name === "string" && typeof rec?.unit === "string";
+      })
+      .map((item) => ({ id: item.id, name: item.name, unit: item.unit }));
+    if (items.length === 0) {
+      window.alert("В файле нет ни одной записи с id/name/unit");
+      return;
+    }
+    const { data, error } = await apiImportProductTypes(items);
+    if (error || !data) {
+      window.alert(error ?? "Не удалось импортировать ингредиенты");
+      return;
+    }
+    window.alert(`Импорт завершён: новых ингредиентов — ${data.created}, пропущено (уже есть) — ${data.skipped}`);
+    apiProductTypes().then((list) => {
+      if (list) setProductTypes(list);
+    });
   };
 
   // Экспорт/импорт склада в JSON — бэкап/перенос между окружениями. Экспорт
@@ -2283,6 +2624,7 @@ export default function StaffApp() {
                   {[
                     ["purchases", "Закупки"],
                     ["products", "Товары"],
+                    ["ingredients", "Ингредиенты"],
                     ["write-offs", "Списания"],
                   ].map(([id, label]) => (
                     <button
@@ -2392,6 +2734,49 @@ export default function StaffApp() {
                     <Plus className="size-4" />
                     <span>Добавить гостя</span>
                   </button>
+                ) : activeTab === "ingredients" ? (
+                  <>
+                    <button
+                      className="inline-flex h-10 items-center gap-2 rounded-xl bg-zinc-100 px-4 text-sm font-medium text-zinc-950 shadow-md shadow-black/25 hover:bg-white"
+                      type="button"
+                      onClick={() => {
+                        setNewTypeName("");
+                        setNewTypeId("");
+                        setNewTypeIdTouched(false);
+                        setNewTypeUnit("шт");
+                        setNewTypeError(null);
+                        setIsTypeModalOpen(true);
+                      }}
+                    >
+                      <Plus className="size-4" />
+                      <span>Создать ингредиент</span>
+                    </button>
+                    <button
+                      className="inline-flex h-10 items-center gap-2 rounded-xl border border-white/8 px-4 text-sm text-zinc-300 hover:bg-[#25272c]"
+                      type="button"
+                      onClick={exportIngredientTypesJson}
+                      title={
+                        selectedTypeIds.size > 0
+                          ? `Выгрузить выбранные (${selectedTypeIds.size})`
+                          : "Выгрузить все ингредиенты (ничего не выбрано)"
+                      }
+                    >
+                      <span>Экспорт JSON{selectedTypeIds.size > 0 ? ` (${selectedTypeIds.size})` : ""}</span>
+                    </button>
+                    <label className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-xl border border-white/8 px-4 text-sm text-zinc-300 hover:bg-[#25272c]">
+                      <span>Импорт JSON</span>
+                      <input
+                        className="hidden"
+                        type="file"
+                        accept=".json,application/json"
+                        onChange={(event) => {
+                          const file = event.target.files?.[0];
+                          event.target.value = "";
+                          if (file) importIngredientTypesFromFile(file);
+                        }}
+                      />
+                    </label>
+                  </>
                 ) : (
                   <>
                     <button
@@ -2618,232 +3003,91 @@ export default function StaffApp() {
                     <span />
                   </div>
                   {listProducts.length === 0 && <Empty icon={PackageCheck} />}
-                  {listProducts.map((product) => {
-                    const type = getProductType(product.typeId);
-                    const lastBatch = product.batches.at(-1);
-                    const lastUnitPrice = lastBatch ? getBatchUnitPrice(product, lastBatch) : null;
-                    const amount = getProductAvailableAmount(product);
-                    const expiredAmount = getProductExpiredAmount(product);
-                    const packageSize = Number.isFinite(product.packageSize) ? product.packageSize : 0;
+                  {listProducts.map((product) => renderProductRow(product))}
+                </div>
+              </section>
+            )}
+
+            {activeSection === "warehouse" && activeTab === "ingredients" && (
+              <section className="rounded-xl border border-white/8 bg-[#1b1c20]">
+                <div className="border-b border-white/8 p-4">
+                  <h3 className="font-semibold">Ингредиенты</h3>
+                  <p className="mt-1 text-xs text-zinc-500">
+                    Ингредиент — это тип (папка), внутри которого может лежать несколько разных товаров (разные
+                    поставщики, фасовки). Рецепты позиций ссылаются на тип, а не на конкретный товар — списание при
+                    заказе само выбирает нужную партию по сроку годности среди всех товаров этого типа.
+                  </p>
+                </div>
+                <div className="divide-y divide-white/8">
+                  <div className="hidden grid-cols-[24px_minmax(0,1fr)_130px_130px_40px] items-center gap-3 px-4 py-3 text-xs uppercase text-zinc-500 lg:grid">
+                    <input
+                      type="checkbox"
+                      className="size-4 accent-zinc-100"
+                      checked={selectedTypeIds.size > 0 && selectedTypeIds.size === listIngredientGroups.length}
+                      onChange={(event) =>
+                        setSelectedTypeIds(
+                          event.target.checked ? new Set(listIngredientGroups.map((g) => g.type.id)) : new Set(),
+                        )
+                      }
+                      title="Выбрать все"
+                    />
+                    <span>Ингредиент</span>
+                    <span>Остаток</span>
+                    <span>Товаров</span>
+                    <span />
+                  </div>
+                  {listIngredientGroups.length === 0 && <Empty icon={PackageCheck} />}
+                  {listIngredientGroups.map(({ type, products: typeProducts }) => {
+                    const totalAmount = typeProducts.reduce((sum, product) => sum + getProductAvailableAmount(product), 0);
+                    const isExpanded = expandedTypeId === type.id;
+                    const isSelected = selectedTypeIds.has(type.id);
                     return (
-                      <div key={product.id}>
-                        <button
-                          className="grid w-full gap-3 p-4 text-left lg:grid-cols-[minmax(0,1fr)_130px_150px_130px_40px]"
-                          type="button"
-                          onClick={() =>
-                            setExpandedProductId(expandedProductId === product.id ? null : product.id)
-                          }
+                      <div key={type.id}>
+                        <div
+                          role="button"
+                          tabIndex={0}
+                          className="grid w-full cursor-pointer gap-3 p-4 text-left lg:grid-cols-[24px_minmax(0,1fr)_130px_130px_40px]"
+                          onClick={() => setExpandedTypeId(isExpanded ? null : type.id)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") setExpandedTypeId(isExpanded ? null : type.id);
+                          }}
                         >
-                          <span className="min-w-0">
-                            <span className="block truncate font-medium">{product.name}</span>
-                            <span className="mt-1 block truncate text-xs text-zinc-500">
-                              {type?.name ?? "Тип не указан"}
-                            </span>
-                          </span>
-                          <span className="text-sm text-zinc-400">
-                            {formatAmount(amount)} {product.stockUnit}
-                            {expiredAmount > 0 && (
-                              <span className="mt-1 block text-xs text-rose-400">
-                                просрочено {formatAmount(expiredAmount)} {product.stockUnit}
-                              </span>
-                            )}
-                          </span>
-                          <span className="text-sm text-zinc-400">
-                            {formatAmount(packageSize)} {product.stockUnit} / уп.
-                          </span>
-                          <span className="text-sm text-zinc-400">
-                            {lastUnitPrice === null ? "без цены" : `${formatMoney(lastUnitPrice)} / ${product.stockUnit}`}
-                          </span>
-                          <ChevronDown
-                            className={`size-4 text-zinc-500 transition ${
-                              expandedProductId === product.id ? "rotate-180" : ""
-                            }`}
+                          <input
+                            type="checkbox"
+                            className="size-4 accent-zinc-100"
+                            checked={isSelected}
+                            onClick={(event) => event.stopPropagation()}
+                            onChange={() =>
+                              setSelectedTypeIds((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(type.id)) next.delete(type.id);
+                                else next.add(type.id);
+                                return next;
+                              })
+                            }
                           />
-                        </button>
+                          <span className="min-w-0">
+                            <span className="block truncate font-medium">{type.name}</span>
+                            <span className="mt-1 block truncate text-xs text-zinc-500">{type.id}</span>
+                          </span>
+                          <span className="text-sm text-zinc-400">
+                            {formatAmount(totalAmount)} {type.unit}
+                          </span>
+                          <span className="text-sm text-zinc-400">{typeProducts.length}</span>
+                          <ChevronDown className={`size-4 text-zinc-500 transition ${isExpanded ? "rotate-180" : ""}`} />
+                        </div>
 
-                        {expandedProductId === product.id && (
-                          <div className="space-y-3 border-t border-white/8 bg-[#17181b] p-4">
-                            <div className="grid gap-3 md:grid-cols-[minmax(220px,420px)_220px_130px_120px_160px]">
-                              <Field label="Название товара" hint="Меняется только через новую закупку — бэкенд не поддерживает переименование товара">
-                                <input
-                                  className="h-10 w-full min-w-0 rounded-xl border border-white/8 bg-[#111214] px-3 text-sm text-zinc-400 outline-none"
-                                  value={product.name}
-                                  readOnly
-                                />
-                              </Field>
-                              <Field label="Тип расхода" hint="Задаётся при создании товара — бэкенд не поддерживает смену типа">
-                                <DarkSelect
-                                  value={product.typeId}
-                                  options={productTypes.map((item) => ({ id: item.id, label: item.name }))}
-                                  onChange={() => {}}
-                                  disabled
-                                />
-                              </Field>
-                              <Field label="Фасовка" hint="Сколько единиц расхода в одной упаковке">
-                                <input
-                                  className="h-10 w-full min-w-0 rounded-xl border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
-                                  inputMode="decimal"
-                                  value={product.packageSize}
-                                  onChange={(event) =>
-                                    updateProductPackageSize(product.id, Math.max(0, parseNumber(event.target.value)))
-                                  }
-                                />
-                              </Field>
-                              <Field label="Ед. расхода" hint="Задаётся при создании товара — бэкенд не поддерживает смену единицы">
-                                <input
-                                  className="h-10 w-full min-w-0 rounded-xl border border-white/8 bg-[#111214] px-3 text-sm text-zinc-400 outline-none"
-                                  value={product.stockUnit}
-                                  readOnly
-                                />
-                              </Field>
-                              <Field label="Срок по умолчанию, дн." hint="Подставляется новым партиям этого товара">
-                                <input
-                                  className="h-10 w-full min-w-0 rounded-xl border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
-                                  inputMode="numeric"
-                                  value={product.shelfLifeDays}
-                                  onChange={(event) => updateProductShelfLifeDays(product.id, event.target.value)}
-                                />
-                              </Field>
-                            </div>
-
-                            {product.batches.length === 0 ? (
-                              <div className="grid min-h-20 place-items-center rounded-xl border border-white/8 bg-[#111214]">
-                                <Archive className="size-5 text-zinc-600" />
+                        {isExpanded && (
+                          <div className="divide-y divide-white/8 border-t border-white/8 bg-[#141517]">
+                            {typeProducts.length === 0 ? (
+                              <div className="grid min-h-20 place-items-center">
+                                <p className="text-xs text-zinc-500">
+                                  Нет товаров этого типа — добавьте через «Добавить закупку» или «Добавить товар» на
+                                  вкладке «Товары».
+                                </p>
                               </div>
                             ) : (
-                              product.batches.map((batch) => {
-                                const percent = shelfPercent(batch);
-                                const batchAmount = getBatchAmount(product, batch);
-                                const batchUnitPrice = getBatchUnitPrice(product, batch);
-                                const expired = isBatchExpired(batch);
-                                const spent = batch.remainingAmount <= 0;
-                                return (
-                                  <div key={batch.id} className="space-y-3 rounded-xl border border-white/8 bg-[#111214] p-3">
-                                    <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-                                      <span className="flex items-center gap-2">
-                                        <span>
-                                          Партия: {formatAmount(batch.remainingAmount)} из {formatAmount(batchAmount)}{" "}
-                                          {product.stockUnit}, {formatAmount(batch.packs)} уп.
-                                        </span>
-                                        {expired && (
-                                          <span className="rounded bg-rose-500/15 px-2 py-0.5 text-xs text-rose-300">
-                                            просрочено
-                                          </span>
-                                        )}
-                                        {!expired && spent && (
-                                          <span className="rounded bg-white/6 px-2 py-0.5 text-xs text-zinc-400">
-                                            израсходовано
-                                          </span>
-                                        )}
-                                      </span>
-                                      <span className="text-zinc-500">
-                                        закуплено {batch.receivedAt}, годен до {batch.expiresAt}
-                                      </span>
-                                      <span className="text-zinc-400">
-                                        {batchUnitPrice === null
-                                          ? "без цены"
-                                          : `${formatMoney(batchUnitPrice)} / ${product.stockUnit}`}
-                                      </span>
-                                      <button
-                                        className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-xl border border-white/8 px-3 text-xs text-zinc-300 hover:bg-[#25272c] disabled:cursor-not-allowed disabled:opacity-40"
-                                        type="button"
-                                        disabled={spent}
-                                        onClick={() => {
-                                          setWriteOffTarget({ product, batch });
-                                          setWriteOffAmount(String(formatAmount(batch.remainingAmount)));
-                                          setWriteOffReason(WRITE_OFF_REASONS[0]);
-                                          setWriteOffCustomReason("");
-                                          setWriteOffFormError(null);
-                                        }}
-                                      >
-                                        <Trash2 className="size-3.5" />
-                                        Списать
-                                      </button>
-                                    </div>
-                                    <div className="grid gap-2 md:grid-cols-[110px_130px_140px_150px_110px_150px]">
-                                      <Field label="Упаковок" hint="Сколько упаковок пришло в этой партии">
-                                        <input
-                                          className="h-9 w-full min-w-0 rounded-xl border border-white/8 bg-[#17181b] px-3 text-sm outline-none focus:border-zinc-400"
-                                          inputMode="decimal"
-                                          value={batch.packs}
-                                          onChange={(event) =>
-                                            updateProductBatch(product.id, batch.id, {
-                                              packs: parseNumber(event.target.value),
-                                            })
-                                          }
-                                        />
-                                      </Field>
-                                      <Field label={`Остаток, ${product.stockUnit}`} hint="Сколько реально осталось от партии">
-                                        <input
-                                          className="h-9 w-full min-w-0 rounded-xl border border-white/8 bg-[#17181b] px-3 text-sm outline-none focus:border-zinc-400"
-                                          inputMode="decimal"
-                                          value={batch.remainingAmount}
-                                          onChange={(event) =>
-                                            updateProductBatch(product.id, batch.id, {
-                                              remainingAmount: Math.max(0, parseNumber(event.target.value)),
-                                            })
-                                          }
-                                        />
-                                      </Field>
-                                      <Field label="Цена партии, ₽" hint="Сумма по чеку — бэкенд не поддерживает правку цены после создания партии">
-                                        <input
-                                          className="h-9 w-full min-w-0 rounded-xl border border-white/8 bg-[#17181b] px-3 text-sm text-zinc-400 outline-none"
-                                          value={batch.totalPrice ?? "без цены"}
-                                          readOnly
-                                        />
-                                      </Field>
-                                      <Field label="Дата закупки" hint="От неё считается срок годности">
-                                        <input
-                                          className="h-9 w-full min-w-0 rounded-xl border border-white/8 bg-[#17181b] px-3 text-sm outline-none focus:border-zinc-400"
-                                          type="date"
-                                          value={batch.receivedAt}
-                                          onChange={(event) =>
-                                            updateProductBatch(product.id, batch.id, { receivedAt: event.target.value })
-                                          }
-                                        />
-                                      </Field>
-                                      <Field label="Срок, дн." hint="Сколько дней партия годна с даты закупки">
-                                        <input
-                                          className="h-9 w-full min-w-0 rounded-xl border border-white/8 bg-[#17181b] px-3 text-sm outline-none focus:border-zinc-400"
-                                          inputMode="numeric"
-                                          value={batch.shelfLifeDays}
-                                          onChange={(event) =>
-                                            updateProductBatch(product.id, batch.id, {
-                                              shelfLifeDays: numericInput(event.target.value),
-                                            })
-                                          }
-                                        />
-                                      </Field>
-                                      <Field label="Годен до" hint="Реальная дата с упаковки: свежая партия или уже уставшая">
-                                        <input
-                                          className="h-9 w-full min-w-0 rounded-xl border border-white/8 bg-[#17181b] px-3 text-sm outline-none focus:border-zinc-400"
-                                          type="date"
-                                          value={batch.expiresAt}
-                                          onChange={(event) =>
-                                            updateProductBatch(product.id, batch.id, {
-                                              shelfLifeDays: String(
-                                                Math.max(0, daysBetween(batch.receivedAt, event.target.value)),
-                                              ),
-                                            })
-                                          }
-                                        />
-                                      </Field>
-                                    </div>
-                                    <div className="mt-3 h-2 rounded-full bg-zinc-800">
-                                      <div
-                                        className={`h-2 rounded-full ${
-                                          percent <= 25
-                                            ? "bg-red-400"
-                                            : percent <= 50
-                                              ? "bg-amber-300"
-                                              : "bg-emerald-400"
-                                        }`}
-                                        style={{ width: `${percent}%` }}
-                                      />
-                                    </div>
-                                  </div>
-                                );
-                              })
+                              typeProducts.map((product) => renderProductRow(product))
                             )}
                           </div>
                         )}
@@ -3535,6 +3779,56 @@ export default function StaffApp() {
                 <Plus className="size-4" />
               </button>
             </div>
+          </div>
+        </Modal>
+      )}
+
+      {isTypeModalOpen && (
+        <Modal title="Новый ингредиент" onClose={() => setIsTypeModalOpen(false)}>
+          <div className="mx-auto grid max-w-md gap-3">
+            <p className="text-xs text-zinc-500">
+              Ингредиент — общая «папка» для товаров (например, «Бекон»): рецепты позиций ссылаются на неё, а не на
+              конкретный товар, поэтому под одним ингредиентом можно завести сколько угодно разных товаров.
+            </p>
+            <Field label="Название" hint="Как ингредиент будет называться в рецептах">
+              <input
+                autoFocus
+                className="h-10 w-full rounded-xl border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
+                placeholder="Например, Помидор"
+                value={newTypeName}
+                onChange={(event) => {
+                  const name = event.target.value;
+                  setNewTypeName(name);
+                  if (!newTypeIdTouched) setNewTypeId(slugifyTypeId(name));
+                }}
+              />
+            </Field>
+            <Field label="id" hint="Латиницей, генерируется из названия — можно поправить вручную">
+              <input
+                className="h-10 w-full rounded-xl border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
+                value={newTypeId}
+                onChange={(event) => {
+                  setNewTypeIdTouched(true);
+                  setNewTypeId(event.target.value);
+                }}
+              />
+            </Field>
+            <Field label="Единица измерения" hint="кг, л, шт — как считать остаток">
+              <input
+                className="h-10 w-full rounded-xl border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
+                placeholder="кг"
+                value={newTypeUnit}
+                onChange={(event) => setNewTypeUnit(event.target.value)}
+              />
+            </Field>
+            {newTypeError && <p className="text-sm text-rose-400">{newTypeError}</p>}
+            <button
+              className="h-10 w-full rounded-xl bg-zinc-100 text-sm font-medium text-zinc-950 hover:bg-white"
+              type="button"
+              onClick={createProductType}
+            >
+              Создать
+            </button>
           </div>
         </Modal>
       )}

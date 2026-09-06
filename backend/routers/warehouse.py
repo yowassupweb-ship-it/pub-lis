@@ -20,6 +20,8 @@ from warehouse_schemas import (
     ProductsImportResult,
     ProductTypeCreate,
     ProductTypeOut,
+    ProductTypesImportRequest,
+    ProductTypesImportResult,
     ProductUpdate,
     PurchaseCreate,
     PurchaseOut,
@@ -53,6 +55,31 @@ async def create_product_type(
     await log_activity(db, staff.id, staff.name, "product_type.create", "product_type", None, {"name": body.name})
     await db.commit()
     return product_type
+
+
+@router.post("/product-types/import", response_model=ProductTypesImportResult)
+async def import_product_types(
+    body: ProductTypesImportRequest,
+    staff: Annotated[AppUser, Depends(require_staff)],
+    db: Annotated[AsyncSession, Depends(get_warehouse_db)],
+) -> ProductTypesImportResult:
+    """Массовое добавление ингредиентов из JSON (например, список, который
+    предложил GPT при разработке рецептов). Существующие id пропускаются —
+    это справочник, изменять существующие записи так не нужно."""
+    created = 0
+    skipped = 0
+    for item in body.product_types:
+        if await db.get(ProductType, item.id) is not None:
+            skipped += 1
+            continue
+        db.add(ProductType(id=item.id, name=item.name, unit=item.unit))
+        created += 1
+    await log_activity(
+        db, staff.id, staff.name, "product_type.import", "product_type", None,
+        {"created": created, "skipped": skipped},
+    )
+    await db.commit()
+    return ProductTypesImportResult(created=created, skipped=skipped)
 
 
 # ── Товары и партии ──────────────────────────────────────────────────────

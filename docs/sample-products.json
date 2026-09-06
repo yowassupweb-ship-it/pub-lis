@@ -1,0 +1,165 @@
+{
+  "_comment": "Товары со складскими остатками под все type_id, использованные в sample-menu-positions.json. Импортировать через /staff → Склад → «Импорт JSON» (POST /api/warehouse/products/import) ДО импорта позиций меню — иначе создание тестового заказа упадёт с «Недостаточно остатков», т.к. позиции ссылаются на тип ингредиента, а списывается остаток у конкретного товара этого типа. type_id — это и есть «папка»/ингредиент: под type-bacon намеренно заведено два РАЗНЫХ товара (Мираторг + эконом от другого поставщика) — при заказе программа сама решает, с какого товара списывать (по сроку годности, FIFO), суммируя остаток по обоим.",
+  "products": [
+    {
+      "name": "Булочка бургерная",
+      "type_id": "type-burger-bun",
+      "package_size": 1,
+      "stock_unit": "шт",
+      "shelf_life_days": 14,
+      "batches": [{ "packs": 200, "total_price": 4000 }]
+    },
+    {
+      "name": "Бекон Мираторг 500г",
+      "type_id": "type-bacon",
+      "package_size": 0.5,
+      "stock_unit": "кг",
+      "shelf_life_days": 21,
+      "batches": [{ "packs": 6, "total_price": 2400 }]
+    },
+    {
+      "name": "Бекон эконом 1кг (второй поставщик)",
+      "type_id": "type-bacon",
+      "package_size": 1,
+      "stock_unit": "кг",
+      "shelf_life_days": 14,
+      "batches": [{ "packs": 2, "total_price": 1600 }]
+    },
+    {
+      "name": "Соус сырный",
+      "type_id": "type-cheese-sauce",
+      "package_size": 1,
+      "stock_unit": "кг",
+      "shelf_life_days": 60,
+      "batches": [{ "packs": 3, "total_price": 1500 }]
+    },
+    {
+      "name": "Соус BBQ",
+      "type_id": "type-bbq-sauce",
+      "package_size": 1,
+      "stock_unit": "кг",
+      "shelf_life_days": 60,
+      "batches": [{ "packs": 3, "total_price": 1800 }]
+    },
+    {
+      "name": "Соус чесночный",
+      "type_id": "type-garlic-sauce",
+      "package_size": 1,
+      "stock_unit": "кг",
+      "shelf_life_days": 60,
+      "batches": [{ "packs": 2, "total_price": 1000 }]
+    },
+    {
+      "name": "Соус горчичный",
+      "type_id": "type-mustard-sauce",
+      "package_size": 1,
+      "stock_unit": "кг",
+      "shelf_life_days": 60,
+      "batches": [{ "packs": 2, "total_price": 900 }]
+    },
+    {
+      "name": "Соус цезарь",
+      "type_id": "type-caesar-sauce",
+      "package_size": 1,
+      "stock_unit": "кг",
+      "shelf_life_days": 60,
+      "batches": [{ "packs": 2, "total_price": 1100 }]
+    },
+    {
+      "name": "Лук сушеный жареный",
+      "type_id": "type-dried-onion",
+      "package_size": 1,
+      "stock_unit": "кг",
+      "shelf_life_days": 180,
+      "batches": [{ "packs": 1.5, "total_price": 1500 }]
+    },
+    {
+      "name": "Картофель фри",
+      "type_id": "type-fries",
+      "package_size": 1,
+      "stock_unit": "кг",
+      "shelf_life_days": 365,
+      "batches": [{ "packs": 10, "total_price": 3500 }]
+    },
+    {
+      "name": "Картофельные дольки со специями",
+      "type_id": "type-potato-wedges",
+      "package_size": 1,
+      "stock_unit": "кг",
+      "shelf_life_days": 365,
+      "batches": [{ "packs": 8, "total_price": 3200 }]
+    },
+    {
+      "name": "Луковые кольца",
+      "type_id": "type-onion-rings",
+      "package_size": 1,
+      "stock_unit": "кг",
+      "shelf_life_days": 365,
+      "batches": [{ "packs": 6, "total_price": 2800 }]
+    },
+    {
+      "name": "Рыбные палочки",
+      "type_id": "type-fish-sticks",
+      "package_size": 1,
+      "stock_unit": "кг",
+      "shelf_life_days": 365,
+      "batches": [{ "packs": 6, "total_price": 3600 }]
+    },
+    {
+      "name": "Кольца кальмара",
+      "type_id": "type-calamari",
+      "package_size": 1,
+      "stock_unit": "кг",
+      "shelf_life_days": 365,
+      "batches": [{ "packs": 5, "total_price": 4500 }]
+    },
+    {
+      "name": "Куриные крылья",
+      "type_id": "type-chicken-wings",
+      "package_size": 1,
+      "stock_unit": "кг",
+      "shelf_life_days": 270,
+      "batches": [{ "packs": 8, "total_price": 4800 }]
+    },
+    {
+      "name": "Огурец маринованный",
+      "type_id": "type-pickled-cucumber",
+      "package_size": 1,
+      "stock_unit": "кг",
+      "shelf_life_days": 365,
+      "batches": [{ "packs": 3, "total_price": 900 }]
+    },
+    {
+      "name": "Пиво лагер разливное (кега)",
+      "type_id": "type-draft-lager",
+      "package_size": 1,
+      "stock_unit": "л",
+      "shelf_life_days": 30,
+      "batches": [{ "packs": 30, "total_price": 9000 }]
+    },
+    {
+      "name": "Пиво IPA разливное (кега)",
+      "type_id": "type-draft-ipa",
+      "package_size": 1,
+      "stock_unit": "л",
+      "shelf_life_days": 30,
+      "batches": [{ "packs": 20, "total_price": 7000 }]
+    },
+    {
+      "name": "Пиво стаут разливное (кега)",
+      "type_id": "type-draft-stout",
+      "package_size": 1,
+      "stock_unit": "л",
+      "shelf_life_days": 30,
+      "batches": [{ "packs": 20, "total_price": 7500 }]
+    },
+    {
+      "name": "Вода негазированная 0.5",
+      "type_id": "type-plastic-bottle-05",
+      "package_size": 1,
+      "stock_unit": "шт",
+      "shelf_life_days": 365,
+      "batches": [{ "packs": 100, "total_price": 3000 }]
+    }
+  ]
+}
