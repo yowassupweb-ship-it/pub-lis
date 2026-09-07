@@ -2284,12 +2284,18 @@ export default function StaffApp() {
     "user.create": "создал аккаунт",
     "user.update": "изменил аккаунт",
     "sessions.revoke": "отозвал сессии",
-    "product_type.create": "создал тип товара",
+    "product_type.create": "создал ингредиент",
+    "product_type.update": "изменил ингредиент",
+    "product_type.delete": "удалил ингредиент",
     "product.add_batch": "добавил партию товара",
     "product.update": "изменил товар",
     "product.update_batch": "изменил партию товара",
+    "product.delete": "удалил товар",
     "purchase.create": "оформил закупку",
+    "purchase.update": "изменил закупку",
+    "purchase.delete": "удалил закупку",
     "write_off.create": "списал товар",
+    "write_off.cancel": "отменил списание",
     "menu_category.create": "создал раздел меню",
     "menu_category.update": "переименовал раздел меню",
     "menu_category.delete": "удалил раздел меню",
@@ -2302,7 +2308,78 @@ export default function StaffApp() {
     "order.edit": "изменил заказ",
   };
 
-  type ActivityEntry = { id: string; at: string; text: string };
+  // Подписи полей для диффов "было -> стало" в деталях журнала действий.
+  const CHANGE_FIELD_LABELS: Record<string, string> = {
+    type_id: "ингредиент",
+    stock_unit: "ед. расхода",
+    package_size: "фасовка",
+    shelf_life_days: "срок, дн.",
+    packs: "упаковок",
+    remaining_amount: "остаток",
+    total_price: "цена партии",
+    received_at: "дата закупки",
+  };
+
+  const formatChangeValue = (field: string, value: unknown): string => {
+    if (value === null || value === undefined || value === "") return "—";
+    if (field === "type_id") return getProductType(String(value))?.name ?? String(value);
+    if (typeof value === "number") return String(formatAmount(value));
+    return String(value);
+  };
+
+  // Из payload журнала действий собирает читаемую строку "что именно
+  // изменилось" — было -> стало по каждому полю, а не просто код действия.
+  const describeActivityPayload = (action: string, payload: Record<string, unknown>): string => {
+    if (action === "product_type.update") {
+      const parts: string[] = [];
+      if (payload.name_before !== payload.name_after) {
+        parts.push(`название: «${payload.name_before}» → «${payload.name_after}»`);
+      }
+      if (payload.unit_before !== payload.unit_after) {
+        parts.push(`ед.: «${payload.unit_before}» → «${payload.unit_after}»`);
+      }
+      return parts.join(", ");
+    }
+    if (action === "product_type.create" || action === "product_type.delete") {
+      return `«${payload.name}»${payload.unit ? ` (${payload.unit})` : ""}`;
+    }
+    if (action === "product.update" || action === "product.update_batch") {
+      const changes = (payload.changes ?? {}) as Record<string, { before: unknown; after: unknown }>;
+      const parts = Object.entries(changes).map(
+        ([field, { before, after }]) =>
+          `${CHANGE_FIELD_LABELS[field] ?? field}: ${formatChangeValue(field, before)} → ${formatChangeValue(field, after)}`,
+      );
+      return [`«${payload.name}»`, ...parts].join(parts.length ? ", " : "");
+    }
+    if (action === "product.delete") {
+      return `«${payload.name}»`;
+    }
+    if (action === "purchase.update") {
+      const parts: string[] = [];
+      if (payload.supplier_before !== payload.supplier_after) {
+        parts.push(`поставщик: «${payload.supplier_before ?? "—"}» → «${payload.supplier_after ?? "—"}»`);
+      }
+      if (payload.received_at_before !== payload.received_at_after) {
+        parts.push(`дата: ${payload.received_at_before} → ${payload.received_at_after}`);
+      }
+      if (payload.source_text_before !== payload.source_text_after) {
+        parts.push("примечание изменено");
+      }
+      return parts.join(", ");
+    }
+    if (action === "purchase.delete") {
+      return `«${payload.name}»`;
+    }
+    if (action === "write_off.create") {
+      return `«${payload.product_name}» −${formatAmount(Number(payload.amount))} ${payload.unit} (${payload.reason})`;
+    }
+    if (action === "write_off.cancel") {
+      return `«${payload.product_name}» +${formatAmount(Number(payload.amount))} ${payload.unit}`;
+    }
+    return "";
+  };
+
+  type ActivityEntry = { id: string; at: string; text: string; detail: string };
   const activityFeed: ActivityEntry[] = [
     ...auditEvents.map((e): ActivityEntry => ({
       id: e.id,
@@ -2310,13 +2387,13 @@ export default function StaffApp() {
       text: `${e.actor_name ?? "—"} · ${AUDIT_ACTION_LABELS[e.action] ?? e.action}${
         e.entity_id ? ` #${shortId(e.entity_id)}` : ""
       }`,
+      detail: "",
     })),
     ...warehouseActivity.map((e): ActivityEntry => ({
       id: e.id,
       at: e.created_at,
-      text: `${e.actor_name ?? "—"} · ${AUDIT_ACTION_LABELS[e.action] ?? e.action}${
-        e.entity_id ? ` #${shortId(e.entity_id)}` : ""
-      }`,
+      text: `${e.actor_name ?? "—"} · ${AUDIT_ACTION_LABELS[e.action] ?? e.action}`,
+      detail: describeActivityPayload(e.action, e.payload ?? {}),
     })),
   ].sort((a, b) => b.at.localeCompare(a.at));
 
@@ -2820,7 +2897,7 @@ export default function StaffApp() {
                       </div>
                       <div className="divide-y divide-white/5">
                         {entries.map((entry) => (
-                          <div key={entry.id} className="flex gap-3 px-4 py-1.5 text-xs">
+                          <div key={entry.id} className="flex flex-wrap gap-3 px-4 py-1.5 text-xs">
                             <span className="shrink-0 text-zinc-600">
                               {new Date(entry.at).toLocaleTimeString("ru-RU", {
                                 hour: "2-digit",
@@ -2829,6 +2906,7 @@ export default function StaffApp() {
                               })}
                             </span>
                             <span className="text-zinc-300">{entry.text}</span>
+                            {entry.detail && <span className="text-zinc-500">— {entry.detail}</span>}
                           </div>
                         ))}
                       </div>

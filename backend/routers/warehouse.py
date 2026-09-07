@@ -94,9 +94,13 @@ async def update_product_type(
     product_type = await db.get(ProductType, type_id)
     if product_type is None:
         raise HTTPException(status_code=404, detail="Ингредиент не найден")
+    name_before, unit_before = product_type.name, product_type.unit
     product_type.name = body.name
     product_type.unit = body.unit
-    await log_activity(db, staff.id, staff.name, "product_type.update", "product_type", None, {"name": body.name})
+    await log_activity(
+        db, staff.id, staff.name, "product_type.update", "product_type", None,
+        {"name_before": name_before, "name_after": body.name, "unit_before": unit_before, "unit_after": body.unit},
+    )
     await db.commit()
     return product_type
 
@@ -131,9 +135,11 @@ async def delete_product_type(
             detail=f"Нельзя удалить: ингредиент используется в {recipes_count} рецепте(ах) — уберите его из позиций меню.",
         )
 
-    name = product_type.name
+    name, unit = product_type.name, product_type.unit
     await db.delete(product_type)
-    await log_activity(db, staff.id, staff.name, "product_type.delete", "product_type", None, {"name": name})
+    await log_activity(
+        db, staff.id, staff.name, "product_type.delete", "product_type", None, {"name": name, "unit": unit},
+    )
     await db.commit()
 
 
@@ -194,19 +200,26 @@ async def update_product(
     product = await db.get(Product, product_id, options=[selectinload(Product.batches)])
     if product is None:
         raise HTTPException(status_code=404, detail="Товар не найден")
-    if body.type_id is not None:
+    changes: dict[str, dict[str, object]] = {}
+    if body.type_id is not None and body.type_id != product.type_id:
         if await db.get(ProductType, body.type_id) is None:
             raise HTTPException(status_code=404, detail="Ингредиент не найден")
+        changes["type_id"] = {"before": product.type_id, "after": body.type_id}
         product.type_id = body.type_id
-    if body.stock_unit is not None:
+    if body.stock_unit is not None and body.stock_unit != product.stock_unit:
+        changes["stock_unit"] = {"before": product.stock_unit, "after": body.stock_unit}
         product.stock_unit = body.stock_unit
-    if body.package_size is not None:
+    if body.package_size is not None and float(body.package_size) != float(product.package_size):
+        changes["package_size"] = {"before": float(product.package_size), "after": body.package_size}
         product.package_size = body.package_size
         for batch in product.batches:
             batch.remaining_amount = float(batch.packs) * body.package_size
-    if body.shelf_life_days is not None:
+    if body.shelf_life_days is not None and body.shelf_life_days != product.shelf_life_days:
+        changes["shelf_life_days"] = {"before": product.shelf_life_days, "after": body.shelf_life_days}
         product.shelf_life_days = body.shelf_life_days
-    await log_activity(db, staff.id, staff.name, "product.update", "product", product.id, {"name": product.name})
+    await log_activity(
+        db, staff.id, staff.name, "product.update", "product", product.id, {"name": product.name, "changes": changes},
+    )
     await db.commit()
     return product
 
@@ -239,9 +252,12 @@ async def delete_product(
             detail=f"Нельзя удалить: по товару есть {write_offs_count} списание(й) — это часть истории списаний.",
         )
 
-    name = product.name
+    name, type_id, stock_unit = product.name, product.type_id, product.stock_unit
     await db.delete(product)  # партии удалятся каскадом (product_batches.product_id ON DELETE CASCADE)
-    await log_activity(db, staff.id, staff.name, "product.delete", "product", product_id, {"name": name})
+    await log_activity(
+        db, staff.id, staff.name, "product.delete", "product", product_id,
+        {"name": name, "type_id": type_id, "stock_unit": stock_unit},
+    )
     await db.commit()
 
 
@@ -259,11 +275,23 @@ async def update_batch(
     batch = await db.get(ProductBatch, batch_id)
     if batch is None or batch.product_id != product_id:
         raise HTTPException(status_code=404, detail="Партия не найдена")
+    changes: dict[str, dict[str, object]] = {}
     for field, value in body.model_dump(exclude_unset=True).items():
+        before = getattr(batch, field)
+        if isinstance(before, date):
+            before, after = str(before), str(value)
+        elif isinstance(before, int):
+            before, after = before, value
+        else:
+            before, after = float(before), value  # Numeric-колонки приходят как Decimal
         setattr(batch, field, value)
+        changes[field] = {"before": before, "after": after}
     if body.received_at is not None or body.shelf_life_days is not None:
         batch.expires_at = batch.received_at + timedelta(days=batch.shelf_life_days)
-    await log_activity(db, staff.id, staff.name, "product.update_batch", "product", product.id, {"name": product.name})
+    await log_activity(
+        db, staff.id, staff.name, "product.update_batch", "product", product.id,
+        {"name": product.name, "changes": changes},
+    )
     await db.commit()
     await db.refresh(product, attribute_names=["batches"])
     return product
@@ -463,10 +491,18 @@ async def update_purchase(
     purchase = await db.get(Purchase, purchase_id)
     if purchase is None:
         raise HTTPException(status_code=404, detail="Закупка не найдена")
+    supplier_before, source_before, received_before = purchase.supplier, purchase.source_text, purchase.received_at
     purchase.supplier = body.supplier
     purchase.source_text = body.source_text
     purchase.received_at = body.received_at
-    await log_activity(db, staff.id, staff.name, "purchase.update", "purchase", purchase.id, {})
+    await log_activity(
+        db, staff.id, staff.name, "purchase.update", "purchase", purchase.id,
+        {
+            "supplier_before": supplier_before, "supplier_after": body.supplier,
+            "source_text_before": source_before, "source_text_after": body.source_text,
+            "received_at_before": str(received_before), "received_at_after": str(body.received_at),
+        },
+    )
     await db.commit()
     item_count, total = await _purchase_totals(db, purchase.id)
     return PurchaseOut(
