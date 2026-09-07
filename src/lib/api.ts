@@ -694,6 +694,9 @@ export const apiCreateWriteOff = (payload: {
   reason: string;
 }) => requestWithError<ApiWriteOff>("/warehouse/write-offs", { method: "POST", body: JSON.stringify(payload) });
 
+export const apiCancelWriteOff = (writeOffId: string) =>
+  requestWithError<null>(`/warehouse/write-offs/${writeOffId}`, { method: "DELETE" });
+
 // ── Меню ─────────────────────────────────────────────────────────────────
 
 export type ApiMenuCategory = { id: string; name: string; sort_order: number };

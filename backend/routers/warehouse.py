@@ -561,3 +561,25 @@ async def create_write_off(
     )
     await db.commit()
     return write_off
+
+
+@router.delete("/write-offs/{write_off_id}", status_code=204)
+async def cancel_write_off(
+    write_off_id: uuid.UUID,
+    staff: Annotated[AppUser, Depends(require_staff)],
+    db: Annotated[AsyncSession, Depends(get_warehouse_db)],
+) -> None:
+    """Отмена списания — возвращает списанное количество в партию и удаляет
+    запись. Партия гарантированно ещё существует (write_offs.batch_id RESTRICT)."""
+    write_off = await db.get(WriteOff, write_off_id)
+    if write_off is None:
+        raise HTTPException(status_code=404, detail="Списание не найдено")
+    batch = await db.get(ProductBatch, write_off.batch_id)
+    if batch is not None:
+        batch.remaining_amount = float(batch.remaining_amount) + float(write_off.amount)
+    await db.delete(write_off)
+    await log_activity(
+        db, staff.id, staff.name, "write_off.cancel", "write_off", write_off_id,
+        {"product_name": write_off.product_name, "amount": float(write_off.amount), "unit": write_off.unit},
+    )
+    await db.commit()

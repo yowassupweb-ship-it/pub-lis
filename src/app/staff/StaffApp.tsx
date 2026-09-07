@@ -19,6 +19,7 @@ import {
   PackageCheck,
   Pencil,
   Plus,
+  RotateCcw,
   Search,
   Settings,
   Terminal,
@@ -49,6 +50,7 @@ import {
   apiCreateMenuPosition,
   apiCreateOrder,
   apiCreatePurchase,
+  apiCancelWriteOff,
   apiCreateWriteOff,
   apiDeleteGuest,
   apiDeleteMenuCategory,
@@ -1581,6 +1583,19 @@ export default function StaffApp() {
     setWriteOffAmount("");
     setWriteOffCustomReason("");
     setWriteOffFormError(null);
+  };
+
+  const cancelWriteOff = async (entry: WriteOffRecord) => {
+    if (!window.confirm(`Отменить списание «${entry.productName}» (${formatAmount(entry.amount)} ${entry.unit})?`)) {
+      return;
+    }
+    const { error } = await apiCancelWriteOff(entry.id);
+    if (error) {
+      window.alert(error);
+      return;
+    }
+    setWriteOffs((items) => items.filter((item) => item.id !== entry.id));
+    loadProducts();
   };
 
   const applyPurchase = async () => {
@@ -3442,6 +3457,14 @@ export default function StaffApp() {
                           </p>
                           {entry.value > 0 && <p className="text-xs text-rose-400">−{formatMoney(entry.value)}</p>}
                         </div>
+                        <button
+                          className="grid size-8 shrink-0 place-items-center rounded-lg text-zinc-500 hover:bg-[#25272c] hover:text-emerald-400"
+                          type="button"
+                          title="Отменить списание"
+                          onClick={() => cancelWriteOff(entry)}
+                        >
+                          <RotateCcw className="size-4" />
+                        </button>
                       </div>
                     ))
                   )}
