@@ -1281,7 +1281,7 @@ export default function Home() {
           </p>
           <div className="mt-6 flex justify-center gap-3">
             <a
-              href="/"
+              href="/games"
               className="inline-flex items-center gap-2 rounded-md border border-white/8 bg-[#1b1c20] px-4 py-2 text-sm text-zinc-300 transition hover:text-zinc-100"
             >
               К расписанию игр

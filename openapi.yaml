@@ -26,6 +26,8 @@ tags:
   - name: users
   - name: games
   - name: quests
+  - name: characters
+  - name: content
 
 paths:
   /api/health:
@@ -955,6 +957,203 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
 
+  # ---------------------------------------------------------------------------
+  # Пока живёт на моках: бэка под это нет, фронт рисует по этим примерам.
+  # Реализуешь на бэке — меняй x-status на live, форму ответа не трогай.
+  # ---------------------------------------------------------------------------
+
+  /api/news:
+    get:
+      tags: [content]
+      operationId: listNews
+      x-status: mock
+      summary: Новости Норы для главной
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, default: 10 }
+      responses:
+        "200":
+          description: Лента новостей
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/NewsItem" }
+              example:
+                - id: 11111111-1111-1111-1111-111111111111
+                  title: "Турнир по D&D: Зов Лисьей Норы"
+                  excerpt: 24 мая состоится большой турнир для искателей приключений!
+                  published_at: "2026-05-08T12:00:00+03:00"
+                  cover: null
+                - id: 22222222-2222-2222-2222-222222222222
+                  title: Новый мастер в Норе
+                  excerpt: Мириэль водит кампанию по Забытым Королевствам каждую среду.
+                  published_at: "2026-05-05T18:30:00+03:00"
+                  cover: null
+
+  /api/notifications:
+    get:
+      tags: [content]
+      operationId: listNotifications
+      x-status: mock
+      summary: Уведомления игрока (колокольчик в шапке)
+      responses:
+        "200":
+          description: Список уведомлений
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Notification" }
+              example:
+                - id: 33333333-3333-3333-3333-333333333333
+                  text: Мастер Арктур подтвердил вашу заявку на «Проклятие Драконьего Пика»
+                  created_at: "2026-05-10T19:20:00+03:00"
+                  read: false
+
+  /api/characters/me:
+    get:
+      tags: [characters]
+      operationId: getMyCharacter
+      x-status: mock
+      summary: Лист персонажа игрока
+      responses:
+        "200":
+          description: Персонаж
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Character" }
+              example: &characterExample
+                id: 44444444-4444-4444-4444-444444444444
+                name: Элдарин
+                race: Эльф
+                klass: Плут (Разбойник)
+                subclass: Бродяга
+                alignment: Хаотично-добрый
+                level: 5
+                xp: 3500
+                xp_next: 6500
+                hp: 38
+                hp_max: 38
+                ac: 15
+                initiative: 4
+                portrait: null
+                stats: { str: 10, dex: 18, con: 12, int: 14, wis: 13, cha: 16 }
+                skills:
+                  - { name: Скрытность, bonus: 7 }
+                  - { name: Ловкость рук, bonus: 8 }
+                  - { name: Восприятие, bonus: 4 }
+                  - { name: Акробатика, bonus: 6 }
+                gear:
+                  - { name: Кинжал Теней, icon: "🗡️" }
+                  - { name: Зелье лечения, icon: "🧪" }
+                  - { name: Дорожный мешок, icon: "🎒" }
+                  - { name: Воровские инструменты, icon: "🛠️" }
+                  - { name: Короткий лук, icon: "🏹" }
+                  - { name: "Верёвка, 15 м", icon: "🪢" }
+    put:
+      tags: [characters]
+      operationId: updateMyCharacter
+      x-status: mock
+      summary: Сохранить лист персонажа
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Character" }
+      responses:
+        "200":
+          description: Сохранено
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Character" }
+
+  /api/chronicles:
+    get:
+      tags: [content]
+      operationId: listChronicles
+      x-status: mock
+      summary: Хроники приключений игрока
+      responses:
+        "200":
+          description: Приключения с событиями
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Chronicle" }
+              example:
+                - id: 55555555-5555-5555-5555-555555555555
+                  title: Проклятие Драконьего Пика
+                  date: "2026-05-12"
+                  status: in_progress
+                  cover: null
+                  entries:
+                    - { date: "2026-05-05", text: Создан персонаж Элдарин }
+                    - { date: "2026-05-12", text: "Участие в игре: Проклятие Драконьего Пика" }
+                    - { date: "2026-05-12", text: "Получен предмет: Кинжал Теней" }
+                    - { date: "2026-05-12", text: Победа над молодым драконом }
+                    - { date: "2026-05-12", text: "Открыта новая локация: Заброшенная башня" }
+
+  /api/achievements:
+    get:
+      tags: [content]
+      operationId: listAchievements
+      x-status: mock
+      summary: Достижения игрока
+      responses:
+        "200":
+          description: Достижения
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Achievement" }
+              example:
+                - id: 66666666-6666-6666-6666-666666666666
+                  title: Первый шаг
+                  description: Сыграна первая игра в Норе
+                  icon: "🎲"
+                  earned_at: "2026-05-12T23:00:00+03:00"
+                - id: 77777777-7777-7777-7777-777777777777
+                  title: Драконобой
+                  description: Победа над драконом
+                  icon: "🐉"
+                  earned_at: null
+
+  /api/games/{game_id}/session:
+    get:
+      tags: [games]
+      operationId: getGameSession
+      x-status: mock
+      summary: Живая сессия за столом — таймер, состояния, заметки
+      parameters:
+        - name: game_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Состояние сессии
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GameSession" }
+              example:
+                game_id: 88888888-8888-8888-8888-888888888888
+                started_at: "2026-05-12T18:00:00+03:00"
+                elapsed_seconds: 11565
+                running: true
+                participants:
+                  - { name: Элдарин, hp: 38, hp_max: 38, is_master: false }
+                  - { name: Бромгар, hp: 52, hp_max: 52, is_master: false }
+                  - { name: Амелия, hp: 28, hp_max: 28, is_master: false }
+                  - { name: Кай, hp: 31, hp_max: 31, is_master: false }
+                  - { name: Лираэль, hp: 24, hp_max: 24, is_master: false }
+                  - { name: ГМ Арктур, hp: 0, hp_max: 0, is_master: true }
+                notes:
+                  - { id: 99999999-9999-9999-9999-999999999999, text: Дракон покинул логово через северный выход. Нужно проверить старую башню., created_at: "2026-05-12T20:40:00+03:00" }
+
 components:
   securitySchemes:
     cookieAuth:
@@ -963,6 +1162,130 @@ components:
       name: sid
 
   schemas:
+    NewsItem:
+      type: object
+      required: [id, title, excerpt, published_at]
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        excerpt: { type: string }
+        published_at: { type: string, format: date-time }
+        cover: { type: [string, "null"], description: URL обложки }
+
+    Notification:
+      type: object
+      required: [id, text, created_at, read]
+      properties:
+        id: { type: string, format: uuid }
+        text: { type: string }
+        created_at: { type: string, format: date-time }
+        read: { type: boolean }
+
+    CharacterStats:
+      type: object
+      required: [str, dex, con, int, wis, cha]
+      properties:
+        str: { type: integer }
+        dex: { type: integer }
+        con: { type: integer }
+        int: { type: integer }
+        wis: { type: integer }
+        cha: { type: integer }
+
+    Character:
+      type: object
+      required: [id, name, klass, level, hp, hp_max, stats]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        race: { type: string }
+        klass: { type: string, description: класс; class — зарезервированное слово в клиентах }
+        subclass: { type: string }
+        alignment: { type: string }
+        level: { type: integer }
+        xp: { type: integer }
+        xp_next: { type: integer }
+        hp: { type: integer }
+        hp_max: { type: integer }
+        ac: { type: integer }
+        initiative: { type: integer }
+        portrait: { type: [string, "null"] }
+        stats: { $ref: "#/components/schemas/CharacterStats" }
+        skills:
+          type: array
+          items:
+            type: object
+            required: [name, bonus]
+            properties:
+              name: { type: string }
+              bonus: { type: integer }
+        gear:
+          type: array
+          items:
+            type: object
+            required: [name]
+            properties:
+              name: { type: string }
+              icon: { type: string }
+
+    ChronicleEntry:
+      type: object
+      required: [date, text]
+      properties:
+        date: { type: string, format: date }
+        text: { type: string }
+
+    Chronicle:
+      type: object
+      required: [id, title, date, status, entries]
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        date: { type: string, format: date }
+        status: { type: string, enum: [in_progress, finished] }
+        cover: { type: [string, "null"] }
+        entries:
+          type: array
+          items: { $ref: "#/components/schemas/ChronicleEntry" }
+
+    Achievement:
+      type: object
+      required: [id, title, description, icon]
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        description: { type: string }
+        icon: { type: string }
+        earned_at: { type: [string, "null"], format: date-time }
+
+    GameSession:
+      type: object
+      required: [game_id, elapsed_seconds, running, participants, notes]
+      properties:
+        game_id: { type: string, format: uuid }
+        started_at: { type: [string, "null"], format: date-time }
+        elapsed_seconds: { type: integer }
+        running: { type: boolean }
+        participants:
+          type: array
+          items:
+            type: object
+            required: [name, hp, hp_max, is_master]
+            properties:
+              name: { type: string }
+              hp: { type: integer }
+              hp_max: { type: integer }
+              is_master: { type: boolean }
+        notes:
+          type: array
+          items:
+            type: object
+            required: [id, text, created_at]
+            properties:
+              id: { type: string, format: uuid }
+              text: { type: string }
+              created_at: { type: string, format: date-time }
+
     RoleId:
       type: string
       enum: [user, gamemaster, bartender, manager, admin]
