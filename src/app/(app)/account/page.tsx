@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { useSession } from "@/components/SessionContext";
-import { PORTRAITS, UserAvatar, portraitKey } from "@/components/UserAvatar";
 import {
   apiCancelBooking,
   apiChangePassword,
@@ -14,6 +13,7 @@ import {
   apiUpdateMe,
   apiUploadAvatar,
   canManageGames,
+  isAvatarUrl,
   levelFromXp,
   XP_THRESHOLDS,
   type ApiGame,
@@ -26,6 +26,8 @@ function isoDate(d: Date): string {
     d.getDate()
   ).padStart(2, "0")}`;
 }
+
+const AVATAR_PRESETS = ["🧙", "🧝", "🧛", "🧟", "🦹", "🧚", "🧜", "🥷", "🐉", "🦊", "⚔️", "🎲"];
 
 // уровень по-лисьи: 1 хвост, 3 хвоста, 5 хвостов
 function tails(n: number): string {
@@ -153,9 +155,9 @@ export default function AccountPage() {
   return (
     <div className="p-2 sm:p-4">
 
-        {!loaded && <p className="text-[#9a8b75]">Загрузка…</p>}
+        {!loaded && <p className="text-[#b09a72]">Загрузка…</p>}
         {loaded && !user && (
-          <p className="text-[#cfc2ab]">
+          <p className="text-[#d9c9a3]">
             Нужно войти. <a href="/login" className="text-[#e3a83e] underline">Страница входа</a>
           </p>
         )}
@@ -164,11 +166,14 @@ export default function AccountPage() {
           <div className="grid gap-4 md:grid-cols-[200px_1fr_220px] xl:grid-cols-[240px_1fr_280px]">
             <div className="space-y-4">
               <div className="parchment p-4 text-center">
-                <UserAvatar
-                  avatar={user.avatar}
-                  name={user.name}
-                  className="mx-auto aspect-square w-full max-w-[190px] !rounded-full border-2 border-[#33291c] text-7xl shadow-inner"
-                />
+                <div className="mx-auto grid aspect-square w-full max-w-[190px] place-items-center overflow-hidden rounded-md border-4 border-[#4a3421] bg-[#2c1d0e] text-7xl shadow-inner">
+                  {isAvatarUrl(user.avatar) ? (
+                    /* eslint-disable-next-line @next/next/no-img-element */
+                    <img src={user.avatar} alt="Аватар" className="h-full w-full object-cover" />
+                  ) : (
+                    user.avatar ?? "🧙"
+                  )}
+                </div>
                 <h2 className="mt-3 text-lg font-bold tavern-ink">{user.name}</h2>
                 {user.telegram && <p className="text-xs tavern-soft">@{user.telegram}</p>}
                 <button
@@ -180,21 +185,21 @@ export default function AccountPage() {
                 </button>
                 {avatarPickerOpen && (
                   <>
-                    <div className="mt-3 grid grid-cols-3 gap-2">
-                      {PORTRAITS.map(([id, label]) => (
+                    <div className="mt-3 grid grid-cols-4 gap-2">
+                      {AVATAR_PRESETS.map((a) => (
                         <button
-                          key={id}
+                          key={a}
                           type="button"
-                          onClick={() => pickAvatar(portraitKey(id))}
-                          className={`aspect-square overflow-hidden rounded-full border-2 bg-cover bg-center transition hover:border-[#d3a24a]/60 ${
-                            user.avatar === portraitKey(id)
-                              ? "border-[#d3a24a] ring-2 ring-[#d3a24a]/40"
-                              : "border-[#262018]"
+                          onClick={() => pickAvatar(a)}
+                          className={`grid aspect-square place-items-center rounded-md border-2 text-2xl transition hover:bg-[#e0cfa4] ${
+                            (user.avatar ?? "🧙") === a
+                              ? "border-[#b8860b] bg-[#e3a83e]/40"
+                              : "border-[#c9b58a] bg-[#e0cfa4]/40"
                           }`}
-                          style={{ backgroundImage: `url(/avatars/${id}.webp)` }}
-                          title={label}
-                          aria-label={`Аватар: ${label}`}
-                        />
+                          title="Выбрать аватар"
+                        >
+                          {a}
+                        </button>
                       ))}
                     </div>
                     <label className="btn-gold mt-3 w-full cursor-pointer text-xs">
@@ -211,14 +216,14 @@ export default function AccountPage() {
                     </p>
                   </>
                 )}
-                {avatarMsg && <p className="mt-2 text-sm font-bold text-[#e79b8f]">{avatarMsg}</p>}
+                {avatarMsg && <p className="mt-2 text-sm font-bold text-[#8a3327]">{avatarMsg}</p>}
               </div>
 
               <div className="parchment p-4">
                 <span className="chip chip-purple mb-2">Титулы</span>
                 {user.title ? (
                   <ul className="space-y-1.5">
-                    <li className="rounded-md border-2 border-[#262018] bg-[#171009]/60 px-3 py-1.5 text-sm font-bold italic text-[#d3a24a]">
+                    <li className="rounded-md border-2 border-[#c9b58a] bg-[#e0cfa4]/60 px-3 py-1.5 text-sm font-bold italic text-[#8a6216]">
                       ✦ {user.title}
                     </li>
                   </ul>
@@ -248,7 +253,7 @@ export default function AccountPage() {
                     ["Персонажей", "—", "скоро"],
                     ["Баланс", "—", "₽ на счёте · скоро"],
                   ].map(([label, value, hint]) => (
-                    <div key={label} className="flex items-center justify-between gap-2 rounded-md border-2 border-[#262018] bg-[#171009]/50 p-3 sm:block sm:text-center">
+                    <div key={label} className="flex items-center justify-between gap-2 rounded-md border-2 border-[#c9b58a] bg-[#e0cfa4]/50 p-3 sm:block sm:text-center">
                       <p className="text-xs font-bold uppercase tracking-wide tavern-soft">{label}</p>
                       <p className="text-2xl font-bold tavern-ink">{value}</p>
                       <p className="text-[10px] tavern-soft">{hint}</p>
@@ -271,7 +276,7 @@ export default function AccountPage() {
                   <div className="overflow-x-auto">
                     <table className="w-full min-w-[420px] border-collapse text-sm">
                       <thead>
-                        <tr className="border-b-2 border-[#33291c] text-left text-xs uppercase tracking-wide tavern-soft">
+                        <tr className="border-b-2 border-[#8a744f] text-left text-xs uppercase tracking-wide tavern-soft">
                           <th className="p-2">Дата</th>
                           <th className="p-2">Кампания</th>
                           <th className="p-2">Мастер</th>
@@ -283,7 +288,7 @@ export default function AccountPage() {
                         {myGames.map((g) => {
                           const chip = BOOKING_CHIP[g.my_booking_status ?? "pending"];
                           return (
-                            <tr key={g.id} className="border-t border-[#262018]">
+                            <tr key={g.id} className="border-t border-[#c9b58a]">
                               <td className="p-2 whitespace-nowrap">
                                 {new Date(g.starts_at).toLocaleString("ru-RU", {
                                   weekday: "short",
@@ -294,7 +299,7 @@ export default function AccountPage() {
                                 })}
                               </td>
                               <td className="p-2 font-bold">
-                                <a href={`/g/${g.id}`} className="underline decoration-[#33291c] underline-offset-2 hover:text-[#d3a24a]">
+                                <a href={`/g/${g.id}`} className="underline decoration-[#8a744f] underline-offset-2 hover:text-[#8a4f1d]">
                                   {g.title}
                                 </a>
                               </td>
@@ -320,7 +325,7 @@ export default function AccountPage() {
                   </div>
                 )}
                 <span className="mt-3 flex gap-2">
-                  <Link href="/games" className="btn-gold text-xs">Забронировать ещё</Link>
+                  <Link href="/" className="btn-gold text-xs">Забронировать ещё</Link>
                   <Link href="/quests" className="btn-brown text-xs">Доска заданий</Link>
                 </span>
               </div>
@@ -331,7 +336,7 @@ export default function AccountPage() {
                   {masteredGames.length === 0 ? (
                     <p className="text-sm tavern-soft">Ближайших игр нет — забронируй слот в расписании.</p>
                   ) : (
-                    <div className="divide-y divide-[#262018]">
+                    <div className="divide-y divide-[#c9b58a]">
                       {masteredGames.map((g) => {
                         const st =
                           g.status === "approved"
@@ -342,7 +347,7 @@ export default function AccountPage() {
                         return (
                           <div key={g.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
                             <div className="min-w-0">
-                              <a href={`/g/${g.id}`} className="text-sm font-bold tavern-ink underline decoration-[#33291c] underline-offset-2">
+                              <a href={`/g/${g.id}`} className="text-sm font-bold tavern-ink underline decoration-[#8a744f] underline-offset-2">
                                 {g.title}
                               </a>
                               <p className="text-xs tavern-soft">
@@ -358,7 +363,7 @@ export default function AccountPage() {
                       })}
                     </div>
                   )}
-                  <Link href="/games" className="btn-gold mt-3 text-xs">Заявки игроков — в расписании</Link>
+                  <Link href="/" className="btn-gold mt-3 text-xs">Заявки игроков — в расписании</Link>
                 </div>
               )}
 
@@ -366,7 +371,7 @@ export default function AccountPage() {
                 <span className="chip chip-purple mb-3">Мои персонажи</span>
                 {/* заглушка до листов персонажей */}
                 <div className="flex flex-wrap items-center gap-3">
-                  <div className="grid size-14 place-items-center rounded-md border-2 border-dashed border-[#33291c] bg-[#171009]/40 text-2xl">
+                  <div className="grid size-14 place-items-center rounded-md border-2 border-dashed border-[#8a744f] bg-[#e0cfa4]/40 text-2xl">
                     🎲
                   </div>
                   <p className="max-w-xs text-sm tavern-soft">
@@ -421,7 +426,7 @@ export default function AccountPage() {
                   </label>
                 </div>
                 {profileMsg && (
-                  <p className={`text-sm font-bold ${profileMsg.ok ? "text-[#a5d493]" : "text-[#e79b8f]"}`}>
+                  <p className={`text-sm font-bold ${profileMsg.ok ? "text-[#3f6f31]" : "text-[#8a3327]"}`}>
                     {profileMsg.text}
                   </p>
                 )}
@@ -464,7 +469,7 @@ export default function AccountPage() {
                   />
                 </div>
                 {pwdMsg && (
-                  <p className={`text-sm font-bold ${pwdMsg.ok ? "text-[#a5d493]" : "text-[#e79b8f]"}`}>
+                  <p className={`text-sm font-bold ${pwdMsg.ok ? "text-[#3f6f31]" : "text-[#8a3327]"}`}>
                     {pwdMsg.text}
                   </p>
                 )}
@@ -480,9 +485,9 @@ export default function AccountPage() {
                   const pct = next === null ? 100 : Math.round(((user.xp - prev) / (next - prev)) * 100);
                   return (
                     <>
-                      <p className="mt-3 text-5xl font-bold leading-none text-[#d3a24a]">{level}</p>
+                      <p className="mt-3 text-5xl font-bold leading-none text-[#8a4f1d]">{level}</p>
                       <p className="text-sm font-bold tavern-ink">{tails(level)}</p>
-                      <div className="mt-3 h-3 overflow-hidden rounded-full border-2 border-[#33291c] bg-[#16110d]">
+                      <div className="mt-3 h-3 overflow-hidden rounded-full border-2 border-[#4a3421] bg-[#2c1d0e]">
                         <div
                           className="h-full bg-gradient-to-r from-[#e3a83e] to-[#d98a2b]"
                           style={{ width: `${pct}%` }}
@@ -507,7 +512,7 @@ export default function AccountPage() {
                 {myQuests.length === 0 ? (
                   <p className="text-sm tavern-soft">Активных заданий нет — загляни на доску.</p>
                 ) : (
-                  <div className="divide-y divide-[#262018]">
+                  <div className="divide-y divide-[#c9b58a]">
                     {myQuests.map((q) => {
                       const st = QUEST_CHIP[q.my_status ?? "taken"];
                       return (

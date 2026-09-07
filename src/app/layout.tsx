@@ -13,9 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Лисья Нора — место приключений",
-  description: "Бронирование игр по D&D, персонажи и хроники таверны «Лисья Нора»",
-  // icon.png и apple-icon.png лежат рядом — Next подхватывает их сам
+  title: "Хитрый лис CRM",
+  description: "CRM для бара Хитрый лис",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

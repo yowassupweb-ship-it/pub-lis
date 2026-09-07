@@ -1,10 +1,10 @@
 "use client";
 
+import { User } from "lucide-react";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { useSession } from "@/components/SessionContext";
-import { UserAvatar } from "@/components/UserAvatar";
 import { apiAdminUpdateUser, apiUserDetail, type ApiUserDetail } from "@/lib/api";
 
 const ROLE_LABELS: Record<string, string> = {
@@ -53,10 +53,10 @@ export default function UserDetailPage() {
   return (
     <div className="mx-auto max-w-2xl p-2 sm:p-4">
 
-        {!loaded && <p className="text-[#9a8b75]">Загрузка…</p>}
+        {!loaded && <p className="text-[#b09a72]">Загрузка…</p>}
 
         {loaded && !detail && (
-          <p className="text-[#cfc2ab]">
+          <p className="text-[#d9c9a3]">
             Профиль недоступен: нужна роль гейм-мастера, менеджера или администратора
             (или пользователь не найден).
           </p>
@@ -65,14 +65,21 @@ export default function UserDetailPage() {
         {detail && (
           <>
             <div className="parchment flex items-center gap-3 p-4 sm:gap-4 sm:p-5">
-              <UserAvatar avatar={detail.avatar} name={detail.name} className="size-16 text-3xl" />
+              <span className="grid size-14 shrink-0 place-items-center overflow-hidden rounded-md border-2 border-[#4a3421] bg-[#2c1d0e] text-3xl">
+                {detail.avatar?.startsWith("/") ? (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <img src={detail.avatar} alt="" className="h-full w-full object-cover" />
+                ) : (
+                  detail.avatar ?? <User className="size-6 text-[#b09a72]" />
+                )}
+              </span>
               <div className="min-w-0">
                 <h1 className="flex flex-wrap items-center gap-2 text-xl font-bold tavern-ink">
                   {detail.name}
                   {!detail.is_active && <span className="chip chip-red">деактивирован</span>}
                 </h1>
                 {detail.title && (
-                  <p className="text-sm italic text-[#d3a24a]">✦ {detail.title}</p>
+                  <p className="text-sm italic text-[#8a6216]">✦ {detail.title}</p>
                 )}
                 <p className="text-sm tavern-soft">
                   {ROLE_LABELS[detail.role] ?? detail.role}
@@ -105,7 +112,7 @@ export default function UserDetailPage() {
                   </button>
                 </div>
                 {titleMsg && (
-                  <p className={`mt-2 text-sm font-bold ${titleMsg === "Сохранено" ? "text-[#a5d493]" : "text-[#e79b8f]"}`}>
+                  <p className={`mt-2 text-sm font-bold ${titleMsg === "Сохранено" ? "text-[#3f6f31]" : "text-[#8a3327]"}`}>
                     {titleMsg}
                   </p>
                 )}
@@ -117,9 +124,9 @@ export default function UserDetailPage() {
               <span className="chip chip-gold">Заявки на игры · {detail.bookings.length}</span>
             </div>
             {detail.bookings.length === 0 ? (
-              <p className="text-sm text-[#cfc2ab]">Ещё не записывался на игры</p>
+              <p className="text-sm text-[#d9c9a3]">Ещё не записывался на игры</p>
             ) : (
-              <div className="parchment divide-y-2 divide-[#262018] p-0">
+              <div className="parchment divide-y-2 divide-[#c9b58a] p-0">
                 {detail.bookings.map((b) => {
                   const s = STATUS_CHIPS[b.status];
                   return (

@@ -4,7 +4,6 @@ import { LogIn, UserPlus } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-import { TavernLogo } from "@/components/TavernLogo";
 import { apiLogin, apiRegister } from "@/lib/api";
 
 type Mode = "login" | "register";
@@ -50,11 +49,11 @@ export default function LoginPage() {
     <main className="tavern-bg flex min-h-screen items-center justify-center p-3 sm:p-4">
       <div className="w-full max-w-sm">
         <div className="mb-5 flex flex-col items-center gap-1 text-center">
-          <TavernLogo size={72} className="drop-shadow" />
-          <h1 className="text-2xl font-bold text-[#ece3d2]">
+          <span className="text-5xl drop-shadow">🦊</span>
+          <h1 className="text-2xl font-bold text-[#f2e7cb]">
             Таверна «Хитрый <span className="text-[#e3a83e]">Лис</span>»
           </h1>
-          <p className="text-sm text-[#9a8b75]">Бронирование игр Dungeons &amp; Dragons</p>
+          <p className="text-sm text-[#b09a72]">Бронирование игр Dungeons &amp; Dragons</p>
         </div>
 
         <div className="parchment p-5">
@@ -130,7 +129,7 @@ export default function LoginPage() {
             </label>
 
             {error && (
-              <p className="rounded-md border-2 border-[#e79b8f] bg-[#b23b2e]/15 px-3 py-2 text-sm font-bold text-[#e79b8f]">
+              <p className="rounded-md border-2 border-[#8a3327] bg-[#b23b2e]/15 px-3 py-2 text-sm font-bold text-[#6d251b]">
                 {error}
               </p>
             )}
