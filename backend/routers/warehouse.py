@@ -26,6 +26,7 @@ from warehouse_schemas import (
     ProductUpdate,
     PurchaseCreate,
     PurchaseOut,
+    PurchaseUpdate,
     WriteOffCreate,
     WriteOffOut,
 )
@@ -193,6 +194,12 @@ async def update_product(
     product = await db.get(Product, product_id, options=[selectinload(Product.batches)])
     if product is None:
         raise HTTPException(status_code=404, detail="Товар не найден")
+    if body.type_id is not None:
+        if await db.get(ProductType, body.type_id) is None:
+            raise HTTPException(status_code=404, detail="Ингредиент не найден")
+        product.type_id = body.type_id
+    if body.stock_unit is not None:
+        product.stock_unit = body.stock_unit
     if body.package_size is not None:
         product.package_size = body.package_size
         for batch in product.batches:
@@ -202,6 +209,40 @@ async def update_product(
     await log_activity(db, staff.id, staff.name, "product.update", "product", product.id, {"name": product.name})
     await db.commit()
     return product
+
+
+@router.delete("/products/{product_id}", status_code=204)
+async def delete_product(
+    product_id: uuid.UUID,
+    staff: Annotated[AppUser, Depends(require_staff)],
+    db: Annotated[AsyncSession, Depends(get_warehouse_db)],
+) -> None:
+    product = await db.get(Product, product_id)
+    if product is None:
+        raise HTTPException(status_code=404, detail="Товар не найден")
+
+    purchases_count = (
+        await db.execute(select(func.count()).select_from(PurchaseItem).where(PurchaseItem.product_id == product_id))
+    ).scalar_one()
+    if purchases_count > 0:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Нельзя удалить: товар числится в {purchases_count} закупке(ах) — это часть истории закупок.",
+        )
+
+    write_offs_count = (
+        await db.execute(select(func.count()).select_from(WriteOff).where(WriteOff.product_id == product_id))
+    ).scalar_one()
+    if write_offs_count > 0:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Нельзя удалить: по товару есть {write_offs_count} списание(й) — это часть истории списаний.",
+        )
+
+    name = product.name
+    await db.delete(product)  # партии удалятся каскадом (product_batches.product_id ON DELETE CASCADE)
+    await log_activity(db, staff.id, staff.name, "product.delete", "product", product_id, {"name": name})
+    await db.commit()
 
 
 @router.patch("/products/{product_id}/batches/{batch_id}", response_model=ProductOut)
@@ -397,6 +438,79 @@ async def create_purchase(
         total=total,
         created_at=purchase.created_at,
     )
+
+
+async def _purchase_totals(db: AsyncSession, purchase_id: uuid.UUID) -> tuple[int, float]:
+    row = (
+        await db.execute(
+            select(func.count(), func.coalesce(func.sum(PurchaseItem.total_price), 0)).where(
+                PurchaseItem.purchase_id == purchase_id
+            )
+        )
+    ).one()
+    return int(row[0]), float(row[1])
+
+
+@router.patch("/purchases/{purchase_id}", response_model=PurchaseOut)
+async def update_purchase(
+    purchase_id: uuid.UUID,
+    body: PurchaseUpdate,
+    staff: Annotated[AppUser, Depends(require_staff)],
+    db: Annotated[AsyncSession, Depends(get_warehouse_db)],
+) -> PurchaseOut:
+    """Правка только шапки закупки (поставщик/текст/дата) — состав и партии
+    не трогаем, это отдельные товары со своей правкой."""
+    purchase = await db.get(Purchase, purchase_id)
+    if purchase is None:
+        raise HTTPException(status_code=404, detail="Закупка не найдена")
+    purchase.supplier = body.supplier
+    purchase.source_text = body.source_text
+    purchase.received_at = body.received_at
+    await log_activity(db, staff.id, staff.name, "purchase.update", "purchase", purchase.id, {})
+    await db.commit()
+    item_count, total = await _purchase_totals(db, purchase.id)
+    return PurchaseOut(
+        id=purchase.id,
+        supplier=purchase.supplier,
+        source_text=purchase.source_text,
+        received_at=purchase.received_at,
+        item_count=item_count,
+        total=total,
+        created_at=purchase.created_at,
+    )
+
+
+@router.delete("/purchases/{purchase_id}", status_code=204)
+async def delete_purchase(
+    purchase_id: uuid.UUID,
+    staff: Annotated[AppUser, Depends(require_staff)],
+    db: Annotated[AsyncSession, Depends(get_warehouse_db)],
+) -> None:
+    """Удаляет закупку вместе с партиями, которые она создала — но только
+    если ни одна из них ещё не тронута (иначе непонятно, что делать с уже
+    списанным/проданным остатком — просим сначала списать/поправить вручную)."""
+    purchase = await db.get(Purchase, purchase_id)
+    if purchase is None:
+        raise HTTPException(status_code=404, detail="Закупка не найдена")
+
+    batches = list(
+        (await db.execute(select(ProductBatch).where(ProductBatch.purchase_id == purchase_id))).scalars()
+    )
+    for batch in batches:
+        product = await db.get(Product, batch.product_id)
+        capacity = float(batch.packs) * float(product.package_size) if product else float(batch.remaining_amount)
+        if abs(float(batch.remaining_amount) - capacity) > 1e-4:
+            raise HTTPException(
+                status_code=409,
+                detail="Нельзя удалить: часть товара из этой закупки уже списана или продана — остаток по партии не совпадает с приходом.",
+            )
+
+    for batch in batches:
+        await db.delete(batch)
+    name = purchase.supplier or purchase.source_text or str(purchase.received_at)
+    await db.delete(purchase)
+    await log_activity(db, staff.id, staff.name, "purchase.delete", "purchase", purchase_id, {"name": name})
+    await db.commit()
 
 
 # ── Списания ─────────────────────────────────────────────────────────────

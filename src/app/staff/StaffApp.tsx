@@ -53,6 +53,8 @@ import {
   apiDeleteGuest,
   apiDeleteMenuCategory,
   apiDeleteMenuPosition,
+  apiDeleteProduct,
+  apiDeletePurchase,
   apiEditOrder,
   apiExportMenuPositions,
   apiGuests,
@@ -73,6 +75,7 @@ import {
   apiUpdateMenuPosition,
   apiUpdateOrderKitchenStatus,
   apiUpdateProduct,
+  apiUpdatePurchase,
   apiUploadImage,
   apiWarehouseActivity,
   apiWriteOffs,
@@ -158,6 +161,8 @@ type Product = {
 
 type PurchaseRecord = {
   id: string;
+  supplier: string | null;
+  sourceText: string;
   receivedAt: string;
   itemCount: number;
   total: number;
@@ -506,6 +511,8 @@ function mapApiProduct(product: ApiProduct): Product {
 function mapApiPurchase(purchase: ApiPurchaseType): PurchaseRecord {
   return {
     id: purchase.id,
+    supplier: purchase.supplier,
+    sourceText: purchase.source_text,
     receivedAt: purchase.received_at,
     itemCount: purchase.item_count,
     total: purchase.total,
@@ -781,6 +788,11 @@ export default function StaffApp() {
   const [expandedTypeId, setExpandedTypeId] = useState<string | null>(null);
   const [selectedTypeIds, setSelectedTypeIds] = useState<Set<string>>(new Set());
   const [isPurchaseModalOpen, setIsPurchaseModalOpen] = useState(false);
+  const [editingPurchaseId, setEditingPurchaseId] = useState<string | null>(null);
+  const [editPurchaseSupplier, setEditPurchaseSupplier] = useState("");
+  const [editPurchaseSourceText, setEditPurchaseSourceText] = useState("");
+  const [editPurchaseReceivedAt, setEditPurchaseReceivedAt] = useState("");
+  const [editPurchaseError, setEditPurchaseError] = useState<string | null>(null);
   const [isProductModalOpen, setIsProductModalOpen] = useState(false);
   const [newProductError, setNewProductError] = useState<string | null>(null);
   const [positionFormError, setPositionFormError] = useState<string | null>(null);
@@ -1103,10 +1115,16 @@ export default function StaffApp() {
     const packageSize = Number.isFinite(product.packageSize) ? product.packageSize : 0;
     return (
       <div key={product.id}>
-        <button
-          className="grid w-full gap-3 p-4 text-left lg:grid-cols-[minmax(0,1fr)_130px_150px_130px_40px]"
-          type="button"
+        <div
+          role="button"
+          tabIndex={0}
+          className="grid w-full cursor-pointer gap-3 p-4 text-left lg:grid-cols-[minmax(0,1fr)_130px_150px_130px_36px_40px]"
           onClick={() => setExpandedProductId(expandedProductId === product.id ? null : product.id)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              setExpandedProductId(expandedProductId === product.id ? null : product.id);
+            }
+          }}
         >
           <span className="min-w-0">
             <span className="block truncate font-medium">{product.name}</span>
@@ -1126,10 +1144,21 @@ export default function StaffApp() {
           <span className="text-sm text-zinc-400">
             {lastUnitPrice === null ? "без цены" : `${formatMoney(lastUnitPrice)} / ${product.stockUnit}`}
           </span>
+          <button
+            className="grid size-8 place-items-center rounded-lg text-zinc-500 hover:bg-[#25272c] hover:text-rose-400"
+            type="button"
+            title="Удалить товар"
+            onClick={(event) => {
+              event.stopPropagation();
+              deleteProduct(product);
+            }}
+          >
+            <Trash2 className="size-4" />
+          </button>
           <ChevronDown
             className={`size-4 text-zinc-500 transition ${expandedProductId === product.id ? "rotate-180" : ""}`}
           />
-        </button>
+        </div>
 
         {expandedProductId === product.id && (
           <div className="space-y-3 border-t border-white/8 bg-[#17181b] p-4">
@@ -1141,12 +1170,11 @@ export default function StaffApp() {
                   readOnly
                 />
               </Field>
-              <Field label="Тип расхода" hint="Задаётся при создании товара — бэкенд не поддерживает смену типа">
+              <Field label="Ингредиент" hint="Категория расхода — от неё зависят рецепты, где используется товар">
                 <DarkSelect
                   value={product.typeId}
                   options={productTypes.map((item) => ({ id: item.id, label: item.name }))}
-                  onChange={() => {}}
-                  disabled
+                  onChange={(value) => updateProductTypeId(product.id, value)}
                 />
               </Field>
               <Field label="Фасовка" hint="Сколько единиц расхода в одной упаковке">
@@ -1159,11 +1187,11 @@ export default function StaffApp() {
                   }
                 />
               </Field>
-              <Field label="Ед. расхода" hint="Задаётся при создании товара — бэкенд не поддерживает смену единицы">
+              <Field label="Ед. расхода" hint="Единица, в которой ведётся остаток и рецепты">
                 <input
-                  className="h-10 w-full min-w-0 rounded-xl border border-white/8 bg-[#111214] px-3 text-sm text-zinc-400 outline-none"
+                  className="h-10 w-full min-w-0 rounded-xl border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
                   value={product.stockUnit}
-                  readOnly
+                  onChange={(event) => updateProductStockUnit(product.id, event.target.value)}
                 />
               </Field>
               <Field label="Срок по умолчанию, дн." hint="Подставляется новым партиям этого товара">
@@ -1247,11 +1275,16 @@ export default function StaffApp() {
                           }
                         />
                       </Field>
-                      <Field label="Цена партии, ₽" hint="Сумма по чеку — бэкенд не поддерживает правку цены после создания партии">
+                      <Field label="Цена партии, ₽" hint="Сумма по чеку за всю партию">
                         <input
-                          className="h-9 w-full min-w-0 rounded-xl border border-white/8 bg-[#17181b] px-3 text-sm text-zinc-400 outline-none"
-                          value={batch.totalPrice ?? "без цены"}
-                          readOnly
+                          className="h-9 w-full min-w-0 rounded-xl border border-white/8 bg-[#17181b] px-3 text-sm outline-none focus:border-zinc-400"
+                          inputMode="decimal"
+                          value={batch.totalPrice ?? ""}
+                          onChange={(event) =>
+                            updateProductBatch(product.id, batch.id, {
+                              totalPrice: Math.max(0, parseNumber(event.target.value)),
+                            })
+                          }
                         />
                       </Field>
                       <Field label="Дата закупки" hint="От неё считается срок годности">
@@ -1410,11 +1443,8 @@ export default function StaffApp() {
     setParsedItems((items) => items.map((item) => (item.id === id ? { ...item, ...patch } : item)));
   };
 
-  // Бэкенд (ProductUpdate) поддерживает обновление товара только по двум
-  // полям — package_size и shelf_life_days; name/type_id/stock_unit менять
-  // нельзя (см. warehouse_schemas.py). Поля с названием/типом/ед. расхода в
-  // разметке ниже сделаны read-only по этой причине (отклонение от исходной
-  // localStorage-версии, где это было чисто клиентское состояние).
+  // Название товара по-прежнему не редактируется (задаётся при закупке), но
+  // ингредиент (type_id) и единицу расхода менять можно.
   const updateProductPackageSize = async (id: string, packageSize: number) => {
     if (packageSize <= 0) return;
     const { data } = await apiUpdateProduct(id, { package_size: packageSize });
@@ -1427,12 +1457,38 @@ export default function StaffApp() {
     if (data) setProducts((items) => items.map((item) => (item.id === id ? mapApiProduct(data) : item)));
   };
 
-  // BatchUpdate тоже не поддерживает total_price — цену партии показываем,
-  // но менять с бэкендом синхронно нельзя, поле сделано read-only.
+  const updateProductTypeId = async (id: string, typeId: string) => {
+    const { data } = await apiUpdateProduct(id, { type_id: typeId });
+    if (data) setProducts((items) => items.map((item) => (item.id === id ? mapApiProduct(data) : item)));
+  };
+
+  const updateProductStockUnit = async (id: string, stockUnit: string) => {
+    if (!stockUnit.trim()) return;
+    const { data } = await apiUpdateProduct(id, { stock_unit: stockUnit.trim() });
+    if (data) setProducts((items) => items.map((item) => (item.id === id ? mapApiProduct(data) : item)));
+  };
+
+  const deleteProduct = async (product: Product) => {
+    if (!window.confirm(`Удалить товар «${product.name}» вместе со всеми его партиями?`)) return;
+    const { error } = await apiDeleteProduct(product.id);
+    if (error) {
+      window.alert(error);
+      return;
+    }
+    setProducts((items) => items.filter((item) => item.id !== product.id));
+  };
+
   const updateProductBatch = async (productId: string, batchId: string, patch: Partial<StockBatch>) => {
-    const payload: { packs?: number; remaining_amount?: number; received_at?: string; shelf_life_days?: number } = {};
+    const payload: {
+      packs?: number;
+      remaining_amount?: number;
+      total_price?: number;
+      received_at?: string;
+      shelf_life_days?: number;
+    } = {};
     if (patch.packs !== undefined) payload.packs = patch.packs;
     if (patch.remainingAmount !== undefined) payload.remaining_amount = patch.remainingAmount;
+    if (patch.totalPrice !== undefined && patch.totalPrice !== null) payload.total_price = patch.totalPrice;
     if (patch.receivedAt !== undefined) payload.received_at = patch.receivedAt;
     if (patch.shelfLifeDays !== undefined) {
       payload.shelf_life_days = Math.max(0, Math.trunc(parseNumber(patch.shelfLifeDays)));
@@ -1561,6 +1617,45 @@ export default function StaffApp() {
     setIsPurchaseModalOpen(false);
     setActiveSection("warehouse");
     setActiveTab("purchases");
+  };
+
+  const startEditPurchase = (purchase: PurchaseRecord) => {
+    setEditingPurchaseId(purchase.id);
+    setEditPurchaseSupplier(purchase.supplier ?? "");
+    setEditPurchaseSourceText(purchase.sourceText);
+    setEditPurchaseReceivedAt(purchase.receivedAt);
+    setEditPurchaseError(null);
+  };
+
+  const saveEditPurchase = async () => {
+    if (!editingPurchaseId) return;
+    const { data, error } = await apiUpdatePurchase(editingPurchaseId, {
+      supplier: editPurchaseSupplier.trim() || null,
+      source_text: editPurchaseSourceText,
+      received_at: editPurchaseReceivedAt,
+    });
+    if (error || !data) {
+      setEditPurchaseError(error ?? "Не удалось сохранить закупку");
+      return;
+    }
+    setPurchases((prev) => prev.map((p) => (p.id === editingPurchaseId ? mapApiPurchase(data) : p)));
+    setEditingPurchaseId(null);
+  };
+
+  const deletePurchase = async (purchase: PurchaseRecord) => {
+    if (
+      !window.confirm(
+        `Удалить закупку от ${purchase.receivedAt}${purchase.supplier ? ` (${purchase.supplier})` : ""} вместе с созданными ею партиями?`,
+      )
+    )
+      return;
+    const { error } = await apiDeletePurchase(purchase.id);
+    if (error) {
+      window.alert(error);
+      return;
+    }
+    setPurchases((prev) => prev.filter((p) => p.id !== purchase.id));
+    loadProducts();
   };
 
   const addManualProduct = async () => {
@@ -1958,7 +2053,7 @@ export default function StaffApp() {
       setPositionFormError(
         draftPosition.ingredients.length === 0
           ? "Добавьте хотя бы один ингредиент в состав"
-          : "В строках состава не выбран тип расхода или указан нулевой расход — заполните хотя бы одну строку целиком",
+          : "В строках состава не выбран ингредиент или указан нулевой расход — заполните хотя бы одну строку целиком",
       );
       return;
     }
@@ -3000,7 +3095,7 @@ export default function StaffApp() {
                             <p className="truncate text-sm font-medium">{position.name}</p>
                             <p className="text-xs text-zinc-500">
                               {formatOrderQuantity(position, 1)}
-                              {available ? "" : " · нет ингредиента"}
+                              {available ? "" : " · не хватает остатка на складе"}
                             </p>
                           </div>
                           <span className="shrink-0 text-sm font-semibold">
@@ -3049,12 +3144,19 @@ export default function StaffApp() {
                     const purchaseBatches = getPurchaseBatches(purchase);
                     return (
                       <div key={purchase.id}>
-                        <button
-                          className="grid w-full items-center gap-3 p-4 text-left md:grid-cols-[140px_1fr_140px_40px]"
-                          type="button"
+                        <div
+                          role="button"
+                          tabIndex={0}
+                          className="grid w-full cursor-pointer items-center gap-3 p-4 text-left md:grid-cols-[140px_1fr_140px_36px_36px_40px]"
                           onClick={() =>
                             setExpandedPurchaseId(expandedPurchaseId === purchase.id ? null : purchase.id)
                           }
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              setExpandedPurchaseId(expandedPurchaseId === purchase.id ? null : purchase.id);
+                            }
+                          }}
                         >
                           <span className="font-medium">
                             {purchase.receivedAt}
@@ -3062,14 +3164,85 @@ export default function StaffApp() {
                               #{shortId(purchase.id)}
                             </span>
                           </span>
-                          <span className="text-sm text-zinc-500">{purchase.itemCount} позиций</span>
+                          <span className="text-sm text-zinc-500">
+                            {purchase.supplier || purchase.itemCount + " позиций"}
+                          </span>
                           <span className="font-semibold">{formatMoney(purchase.total)}</span>
+                          <button
+                            type="button"
+                            className="rounded-lg p-2 text-zinc-500 transition hover:bg-white/5 hover:text-zinc-200"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              startEditPurchase(purchase);
+                            }}
+                          >
+                            <Pencil className="size-4" />
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded-lg p-2 text-zinc-500 transition hover:bg-red-500/10 hover:text-red-400"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              deletePurchase(purchase);
+                            }}
+                          >
+                            <Trash2 className="size-4" />
+                          </button>
                           <ChevronDown
                             className={`size-4 text-zinc-500 transition ${
                               expandedPurchaseId === purchase.id ? "rotate-180" : ""
                             }`}
                           />
-                        </button>
+                        </div>
+
+                        {editingPurchaseId === purchase.id && (
+                          <div className="space-y-3 border-t border-white/8 bg-[#17181b] p-4">
+                            <div className="grid gap-3 md:grid-cols-3">
+                              <label className="text-sm text-zinc-400">
+                                Поставщик
+                                <input
+                                  className="mt-1 w-full rounded-lg border border-white/10 bg-[#111214] px-3 py-2 text-sm text-zinc-100"
+                                  value={editPurchaseSupplier}
+                                  onChange={(event) => setEditPurchaseSupplier(event.target.value)}
+                                />
+                              </label>
+                              <label className="text-sm text-zinc-400">
+                                Дата поступления
+                                <input
+                                  type="date"
+                                  className="mt-1 w-full rounded-lg border border-white/10 bg-[#111214] px-3 py-2 text-sm text-zinc-100"
+                                  value={editPurchaseReceivedAt}
+                                  onChange={(event) => setEditPurchaseReceivedAt(event.target.value)}
+                                />
+                              </label>
+                              <label className="text-sm text-zinc-400 md:col-span-1">
+                                Источник/примечание
+                                <input
+                                  className="mt-1 w-full rounded-lg border border-white/10 bg-[#111214] px-3 py-2 text-sm text-zinc-100"
+                                  value={editPurchaseSourceText}
+                                  onChange={(event) => setEditPurchaseSourceText(event.target.value)}
+                                />
+                              </label>
+                            </div>
+                            {editPurchaseError && <p className="text-sm text-red-400">{editPurchaseError}</p>}
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                className="rounded-lg bg-white/10 px-3 py-1.5 text-sm font-medium text-zinc-100 hover:bg-white/15"
+                                onClick={saveEditPurchase}
+                              >
+                                Сохранить
+                              </button>
+                              <button
+                                type="button"
+                                className="rounded-lg px-3 py-1.5 text-sm text-zinc-400 hover:bg-white/5"
+                                onClick={() => setEditingPurchaseId(null)}
+                              >
+                                Отмена
+                              </button>
+                            </div>
+                          </div>
+                        )}
 
                         {expandedPurchaseId === purchase.id && (
                           <div className="border-t border-white/8 bg-[#17181b] p-4">
@@ -3118,11 +3291,12 @@ export default function StaffApp() {
                   <h3 className="font-semibold">Товары</h3>
                 </div>
                 <div className="divide-y divide-white/8">
-                  <div className="hidden grid-cols-[minmax(0,1fr)_130px_150px_130px_40px] gap-3 px-4 py-3 text-xs uppercase text-zinc-500 lg:grid">
+                  <div className="hidden grid-cols-[minmax(0,1fr)_130px_150px_130px_36px_40px] gap-3 px-4 py-3 text-xs uppercase text-zinc-500 lg:grid">
                     <span>Товар / тип</span>
                     <span>Остаток</span>
                     <span>Фасовка</span>
                     <span>Цена</span>
+                    <span />
                     <span />
                   </div>
                   {listProducts.length === 0 && <Empty icon={PackageCheck} />}
@@ -3598,7 +3772,7 @@ export default function StaffApp() {
                         />
                       </Field>
                       <div className="grid gap-2 xl:grid-cols-[minmax(180px,1fr)_90px_110px_90px_110px_100px_150px_110px_44px]">
-                        <Field label="Тип расхода" hint="Из этого типа блюда списывают ингредиент">
+                        <Field label="Ингредиент" hint="Из этого типа блюда списывают ингредиент">
                           <DarkSelect
                             value={item.typeId}
                             options={[
@@ -3704,7 +3878,7 @@ export default function StaffApp() {
                 onChange={(event) => setNewProduct((item) => ({ ...item, name: event.target.value }))}
               />
             </Field>
-            <Field label="Тип расхода" hint="Из этого типа блюда списывают ингредиент">
+            <Field label="Ингредиент" hint="Из этого типа блюда списывают ингредиент">
               <DarkSelect
                 value={newProduct.typeId}
                 options={[
@@ -4100,7 +4274,7 @@ export default function StaffApp() {
               {draftPosition.ingredients.map((ingredient) => (
                 <div key={ingredient.id} className="space-y-2 rounded-xl border border-white/8 p-3">
                   <div className="grid min-w-0 gap-2 md:grid-cols-[minmax(0,1fr)_140px_40px]">
-                    <Field label="Тип расхода" hint="Помидоры любых поставщиков — один тип">
+                    <Field label="Ингредиент" hint="Помидоры любых поставщиков — один тип">
                     <DarkSelect
                       value={ingredient.typeId}
                       options={[

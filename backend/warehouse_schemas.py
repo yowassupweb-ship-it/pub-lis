@@ -54,6 +54,7 @@ class BatchOut(BaseModel):
 class BatchUpdate(BaseModel):
     packs: float | None = Field(default=None, ge=0)
     remaining_amount: float | None = Field(default=None, ge=0)
+    total_price: float | None = Field(default=None, ge=0)
     received_at: date | None = None
     shelf_life_days: int | None = Field(default=None, ge=0, le=3650)
 
@@ -72,6 +73,8 @@ class ProductOut(BaseModel):
 
 
 class ProductUpdate(BaseModel):
+    type_id: str | None = None
+    stock_unit: str | None = Field(default=None, min_length=1, max_length=16)
     package_size: float | None = Field(default=None, gt=0)
     shelf_life_days: int | None = Field(default=None, ge=0, le=3650)
 
@@ -140,6 +143,15 @@ class PurchaseCreate(BaseModel):
     source_text: str = Field(default="", max_length=4000)
     received_at: date | None = None
     items: list[PurchaseItemIn] = Field(min_length=1)
+
+
+class PurchaseUpdate(BaseModel):
+    """Правка шапки закупки — позиции/партии не трогаем (это отдельные
+    товары/партии, у них своя правка на вкладке «Товары»)."""
+
+    supplier: str | None = Field(default=None, max_length=160)
+    source_text: str = Field(default="", max_length=4000)
+    received_at: date
 
 
 class PurchaseOut(BaseModel):

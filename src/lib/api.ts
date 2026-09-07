@@ -608,17 +608,26 @@ export const apiAddManualProduct = (payload: ManualProductPayload) =>
 
 export const apiUpdateProduct = (
   productId: string,
-  payload: { package_size?: number; shelf_life_days?: number },
+  payload: { type_id?: string; stock_unit?: string; package_size?: number; shelf_life_days?: number },
 ) =>
   requestWithError<ApiProduct>(`/warehouse/products/${productId}`, {
     method: "PATCH",
     body: JSON.stringify(payload),
   });
 
+export const apiDeleteProduct = (productId: string) =>
+  requestWithError<null>(`/warehouse/products/${productId}`, { method: "DELETE" });
+
 export const apiUpdateBatch = (
   productId: string,
   batchId: string,
-  payload: { packs?: number; remaining_amount?: number; received_at?: string; shelf_life_days?: number },
+  payload: {
+    packs?: number;
+    remaining_amount?: number;
+    total_price?: number;
+    received_at?: string;
+    shelf_life_days?: number;
+  },
 ) =>
   requestWithError<ApiProduct>(`/warehouse/products/${productId}/batches/${batchId}`, {
     method: "PATCH",
@@ -663,6 +672,18 @@ export const apiPurchases = () => request<ApiPurchase[]>("/warehouse/purchases")
 
 export const apiCreatePurchase = (payload: PurchaseCreatePayload) =>
   requestWithError<ApiPurchase>("/warehouse/purchases", { method: "POST", body: JSON.stringify(payload) });
+
+export const apiUpdatePurchase = (
+  purchaseId: string,
+  payload: { supplier: string | null; source_text: string; received_at: string },
+) =>
+  requestWithError<ApiPurchase>(`/warehouse/purchases/${purchaseId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+
+export const apiDeletePurchase = (purchaseId: string) =>
+  requestWithError<null>(`/warehouse/purchases/${purchaseId}`, { method: "DELETE" });
 
 export const apiWriteOffs = () => request<ApiWriteOff[]>("/warehouse/write-offs");
 
