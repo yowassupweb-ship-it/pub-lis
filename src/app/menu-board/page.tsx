@@ -13,7 +13,7 @@ const MENU: { title: string; items: { name: string; price: number }[] }[] = [
   {
     title: "ПИВО",
     items: [
-      { name: "Лаггер", price: 300 },
+      { name: "Лагер", price: 300 },
       { name: "Хеллес", price: 300 },
       { name: "Отличный урожай", price: 350 },
       { name: "Рыжая Соня", price: 400 },
