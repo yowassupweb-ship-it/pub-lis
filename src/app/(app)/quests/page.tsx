@@ -209,10 +209,10 @@ export default function QuestsPage() {
 
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
           <div>
-            <h1 className="text-2xl font-bold text-[#f2e7cb]">
+            <h1 className="text-2xl font-bold text-[#ece3d2]">
               Доска заданий <span className="text-[#e3a83e]">таверны</span>
             </h1>
-            <p className="text-sm text-[#b09a72]">Бери задание, выполняй, получай опыт</p>
+            <p className="text-sm text-[#9a8b75]">Бери задание, выполняй, получай опыт</p>
           </div>
           {creatable.length > 0 && (
             <button type="button" onClick={() => setCreateOpen(true)} className="btn-gold text-xs">
@@ -221,18 +221,18 @@ export default function QuestsPage() {
           )}
         </div>
 
-        {!loaded && <p className="text-[#b09a72]">Загрузка…</p>}
+        {!loaded && <p className="text-[#9a8b75]">Загрузка…</p>}
         {loaded && !user && (
-          <p className="text-center text-[#d9c9a3]">
+          <p className="text-center text-[#cfc2ab]">
             Доска видна после входа. <a href="/login" className="text-[#e3a83e] underline">Войти</a>
           </p>
         )}
         {user && quests.length === 0 && (
-          <p className="text-center text-[#d9c9a3]">Доска пуста — загляни позже.</p>
+          <p className="text-center text-[#cfc2ab]">Доска пуста — загляни позже.</p>
         )}
 
         {notice && !createOpen && (
-          <p className="mb-3 rounded-md border-2 border-[#8a3327] bg-[#b23b2e]/20 px-3 py-2 text-sm font-bold text-[#f8d7c9]">
+          <p className="mb-3 rounded-md border-2 border-[#e79b8f] bg-[#b23b2e]/20 px-3 py-2 text-sm font-bold text-[#f0b2a7]">
             {notice}
           </p>
         )}
@@ -260,7 +260,7 @@ export default function QuestsPage() {
               </div>
 
               {expanded === q.id && (
-                <div className="mt-3 border-t-2 border-[#c9b58a] pt-3">
+                <div className="mt-3 border-t-2 border-[#262018] pt-3">
                   {q.description && <p className="mb-2 text-sm tavern-ink">{q.description}</p>}
                   <p className="text-xs tavern-soft">
                     Выдал: {q.creator} · взяли: {q.takers}
@@ -312,7 +312,7 @@ export default function QuestsPage() {
                       )}
                       {(assignments[q.id] ?? []).map((a) => (
                         <div key={a.id} className="flex items-center justify-between gap-2 py-1">
-                          <a href={`/users/${a.user_id}`} className="text-sm font-bold tavern-ink underline decoration-[#8a744f] underline-offset-2">
+                          <a href={`/users/${a.user_id}`} className="text-sm font-bold tavern-ink underline decoration-[#33291c] underline-offset-2">
                             {a.user_name}
                           </a>
                           {(a.status === "submitted" || a.status === "taken") && !q.complete_conditions ? (
@@ -490,7 +490,7 @@ export default function QuestsPage() {
               Текстовые поля: name, email, phone, telegram, title, avatar, role. Числовые: xp,
               games_played, games_mastered (≥ ≤ &gt; &lt; только для них).
             </p>
-            {notice && <p className="text-sm font-bold text-[#8a3327]">{notice}</p>}
+            {notice && <p className="text-sm font-bold text-[#e79b8f]">{notice}</p>}
             <button type="submit" disabled={busy === "create"} className="btn-gold w-full">
               {busy === "create" ? "Секунду…" : "Повесить на доску"}
             </button>
