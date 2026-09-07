@@ -21,6 +21,12 @@ class ProductTypeCreate(BaseModel):
     unit: str = Field(min_length=1, max_length=16)
 
 
+class ProductTypeUpdate(BaseModel):
+    # id не редактируется — на него ссылаются рецепты и товары как на строку.
+    name: str = Field(min_length=1, max_length=120)
+    unit: str = Field(min_length=1, max_length=16)
+
+
 class ProductTypesImportRequest(BaseModel):
     product_types: list[ProductTypeCreate] = Field(min_length=1, max_length=500)
 

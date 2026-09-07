@@ -592,6 +592,15 @@ export const apiImportProductTypes = (productTypes: { id: string; name: string; 
     body: JSON.stringify({ product_types: productTypes }),
   });
 
+export const apiUpdateProductType = (typeId: string, payload: { name: string; unit: string }) =>
+  requestWithError<ApiProductType>(`/warehouse/product-types/${typeId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+
+export const apiDeleteProductType = (typeId: string) =>
+  requestWithError<null>(`/warehouse/product-types/${typeId}`, { method: "DELETE" });
+
 export const apiProducts = () => request<ApiProduct[]>("/warehouse/products");
 
 export const apiAddManualProduct = (payload: ManualProductPayload) =>

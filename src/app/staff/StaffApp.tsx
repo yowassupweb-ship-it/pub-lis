@@ -40,6 +40,8 @@ import {
   STAFF_ROLES,
   apiAddManualProduct,
   apiCreateProductType,
+  apiDeleteProductType,
+  apiUpdateProductType,
   apiAuditEvents,
   apiCancelOrder,
   apiCreateGuest,
@@ -785,6 +787,7 @@ export default function StaffApp() {
   const [purchaseFormError, setPurchaseFormError] = useState<string | null>(null);
   const [categoryFormError, setCategoryFormError] = useState<string | null>(null);
   const [isTypeModalOpen, setIsTypeModalOpen] = useState(false);
+  const [editingTypeId, setEditingTypeId] = useState<string | null>(null);
   const [newTypeName, setNewTypeName] = useState("");
   const [newTypeId, setNewTypeId] = useState("");
   const [newTypeIdTouched, setNewTypeIdTouched] = useState(false);
@@ -1613,20 +1616,42 @@ export default function StaffApp() {
       .replace(/[^\p{L}\p{N}]+/gu, "-")
       .replace(/^-+|-+$/g, "");
 
-  const createProductType = async () => {
+  const startEditProductType = (type: ProductType) => {
+    setEditingTypeId(type.id);
+    setNewTypeName(type.name);
+    setNewTypeId(type.id);
+    setNewTypeIdTouched(true);
+    setNewTypeUnit(type.unit);
+    setNewTypeError(null);
+    setIsTypeModalOpen(true);
+  };
+
+  const saveProductType = async () => {
     const name = newTypeName.trim();
-    const id = (newTypeId.trim() || slugifyTypeId(name)).trim();
     const unit = newTypeUnit.trim();
     if (!name) {
       setNewTypeError("Укажите название ингредиента");
       return;
     }
-    if (!id || id === "type-") {
-      setNewTypeError("Укажите id (латиницей) — не удалось собрать его из названия");
-      return;
-    }
     if (!unit) {
       setNewTypeError("Укажите единицу измерения");
+      return;
+    }
+
+    if (editingTypeId) {
+      const { data, error } = await apiUpdateProductType(editingTypeId, { name, unit });
+      if (error || !data) {
+        setNewTypeError(error ?? "Не удалось сохранить ингредиент");
+        return;
+      }
+      setProductTypes((prev) => prev.map((t) => (t.id === editingTypeId ? data : t)));
+      setIsTypeModalOpen(false);
+      return;
+    }
+
+    const id = (newTypeId.trim() || slugifyTypeId(name)).trim();
+    if (!id || id === "type-") {
+      setNewTypeError("Укажите id (латиницей) — не удалось собрать его из названия");
       return;
     }
     if (productTypes.some((type) => type.id === id)) {
@@ -1640,6 +1665,22 @@ export default function StaffApp() {
     }
     setProductTypes((prev) => [...prev, data]);
     setIsTypeModalOpen(false);
+  };
+
+  const deleteProductType = async (type: ProductType) => {
+    if (!window.confirm(`Удалить ингредиент «${type.name}»?`)) return;
+    const { error } = await apiDeleteProductType(type.id);
+    if (error) {
+      window.alert(error);
+      return;
+    }
+    setProductTypes((prev) => prev.filter((t) => t.id !== type.id));
+    setSelectedTypeIds((prev) => {
+      if (!prev.has(type.id)) return prev;
+      const next = new Set(prev);
+      next.delete(type.id);
+      return next;
+    });
   };
 
   // Экспорт/импорт справочника ингредиентов (product_types) — отдельно от
@@ -2815,6 +2856,7 @@ export default function StaffApp() {
                       className="inline-flex h-10 items-center gap-2 rounded-xl bg-zinc-100 px-4 text-sm font-medium text-zinc-950 shadow-md shadow-black/25 hover:bg-white"
                       type="button"
                       onClick={() => {
+                        setEditingTypeId(null);
                         setNewTypeName("");
                         setNewTypeId("");
                         setNewTypeIdTouched(false);
@@ -3100,7 +3142,7 @@ export default function StaffApp() {
                   </p>
                 </div>
                 <div className="divide-y divide-white/8">
-                  <div className="hidden grid-cols-[24px_minmax(0,1fr)_130px_130px_40px] items-center gap-3 px-4 py-3 text-xs uppercase text-zinc-500 lg:grid">
+                  <div className="hidden grid-cols-[24px_minmax(0,1fr)_130px_130px_36px_36px_40px] items-center gap-3 px-4 py-3 text-xs uppercase text-zinc-500 lg:grid">
                     <input
                       type="checkbox"
                       className="size-4 accent-zinc-100"
@@ -3116,6 +3158,8 @@ export default function StaffApp() {
                     <span>Остаток</span>
                     <span>Товаров</span>
                     <span />
+                    <span />
+                    <span />
                   </div>
                   {listIngredientGroups.length === 0 && <Empty icon={PackageCheck} />}
                   {listIngredientGroups.map(({ type, products: typeProducts }) => {
@@ -3127,7 +3171,7 @@ export default function StaffApp() {
                         <div
                           role="button"
                           tabIndex={0}
-                          className="grid w-full cursor-pointer gap-3 p-4 text-left lg:grid-cols-[24px_minmax(0,1fr)_130px_130px_40px]"
+                          className="grid w-full cursor-pointer gap-3 p-4 text-left lg:grid-cols-[24px_minmax(0,1fr)_130px_130px_36px_36px_40px]"
                           onClick={() => setExpandedTypeId(isExpanded ? null : type.id)}
                           onKeyDown={(event) => {
                             if (event.key === "Enter" || event.key === " ") setExpandedTypeId(isExpanded ? null : type.id);
@@ -3155,6 +3199,28 @@ export default function StaffApp() {
                             {formatAmount(totalAmount)} {type.unit}
                           </span>
                           <span className="text-sm text-zinc-400">{typeProducts.length}</span>
+                          <button
+                            className="grid size-8 place-items-center rounded-lg text-zinc-500 hover:bg-[#25272c] hover:text-zinc-100"
+                            type="button"
+                            title="Изменить ингредиент"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              startEditProductType(type);
+                            }}
+                          >
+                            <Pencil className="size-4" />
+                          </button>
+                          <button
+                            className="grid size-8 place-items-center rounded-lg text-zinc-500 hover:bg-[#25272c] hover:text-rose-400"
+                            type="button"
+                            title="Удалить ингредиент"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              deleteProductType(type);
+                            }}
+                          >
+                            <Trash2 className="size-4" />
+                          </button>
                           <ChevronDown className={`size-4 text-zinc-500 transition ${isExpanded ? "rotate-180" : ""}`} />
                         </div>
 
@@ -3879,7 +3945,10 @@ export default function StaffApp() {
       )}
 
       {isTypeModalOpen && (
-        <Modal title="Новый ингредиент" onClose={() => setIsTypeModalOpen(false)}>
+        <Modal
+          title={editingTypeId ? "Изменить ингредиент" : "Новый ингредиент"}
+          onClose={() => setIsTypeModalOpen(false)}
+        >
           <div className="mx-auto grid max-w-md gap-3">
             <p className="text-xs text-zinc-500">
               Ингредиент — общая «папка» для товаров (например, «Бекон»): рецепты позиций ссылаются на неё, а не на
@@ -3894,14 +3963,18 @@ export default function StaffApp() {
                 onChange={(event) => {
                   const name = event.target.value;
                   setNewTypeName(name);
-                  if (!newTypeIdTouched) setNewTypeId(slugifyTypeId(name));
+                  if (!editingTypeId && !newTypeIdTouched) setNewTypeId(slugifyTypeId(name));
                 }}
               />
             </Field>
-            <Field label="id" hint="Латиницей, генерируется из названия — можно поправить вручную">
+            <Field
+              label="id"
+              hint={editingTypeId ? "На него ссылаются рецепты и товары — не меняется" : "Латиницей, генерируется из названия — можно поправить вручную"}
+            >
               <input
-                className="h-10 w-full rounded-xl border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
+                className="h-10 w-full rounded-xl border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400 disabled:text-zinc-500"
                 value={newTypeId}
+                disabled={!!editingTypeId}
                 onChange={(event) => {
                   setNewTypeIdTouched(true);
                   setNewTypeId(event.target.value);
@@ -3920,9 +3993,9 @@ export default function StaffApp() {
             <button
               className="h-10 w-full rounded-xl bg-zinc-100 text-sm font-medium text-zinc-950 hover:bg-white"
               type="button"
-              onClick={createProductType}
+              onClick={saveProductType}
             >
-              Создать
+              {editingTypeId ? "Сохранить" : "Создать"}
             </button>
           </div>
         </Modal>

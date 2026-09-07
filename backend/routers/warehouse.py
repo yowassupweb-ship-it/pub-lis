@@ -11,7 +11,7 @@ from deps import require_staff
 from models import AppUser
 from warehouse_db import get_warehouse_db
 from warehouse_deps import log_activity
-from warehouse_models import Product, ProductBatch, ProductType, Purchase, PurchaseItem, WriteOff
+from warehouse_models import MenuPositionIngredient, Product, ProductBatch, ProductType, Purchase, PurchaseItem, WriteOff
 from warehouse_schemas import (
     BatchUpdate,
     ManualProductCreate,
@@ -22,6 +22,7 @@ from warehouse_schemas import (
     ProductTypeOut,
     ProductTypesImportRequest,
     ProductTypesImportResult,
+    ProductTypeUpdate,
     ProductUpdate,
     PurchaseCreate,
     PurchaseOut,
@@ -80,6 +81,59 @@ async def import_product_types(
     )
     await db.commit()
     return ProductTypesImportResult(created=created, skipped=skipped)
+
+
+@router.patch("/product-types/{type_id}", response_model=ProductTypeOut)
+async def update_product_type(
+    type_id: str,
+    body: ProductTypeUpdate,
+    staff: Annotated[AppUser, Depends(require_staff)],
+    db: Annotated[AsyncSession, Depends(get_warehouse_db)],
+) -> ProductType:
+    product_type = await db.get(ProductType, type_id)
+    if product_type is None:
+        raise HTTPException(status_code=404, detail="Ингредиент не найден")
+    product_type.name = body.name
+    product_type.unit = body.unit
+    await log_activity(db, staff.id, staff.name, "product_type.update", "product_type", None, {"name": body.name})
+    await db.commit()
+    return product_type
+
+
+@router.delete("/product-types/{type_id}", status_code=204)
+async def delete_product_type(
+    type_id: str,
+    staff: Annotated[AppUser, Depends(require_staff)],
+    db: Annotated[AsyncSession, Depends(get_warehouse_db)],
+) -> None:
+    product_type = await db.get(ProductType, type_id)
+    if product_type is None:
+        raise HTTPException(status_code=404, detail="Ингредиент не найден")
+
+    products_count = (
+        await db.execute(select(func.count()).select_from(Product).where(Product.type_id == type_id))
+    ).scalar_one()
+    if products_count > 0:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Нельзя удалить: под этим ингредиентом ещё {products_count} товар(ов) на складе — сначала удалите их.",
+        )
+
+    recipes_count = (
+        await db.execute(
+            select(func.count()).select_from(MenuPositionIngredient).where(MenuPositionIngredient.type_id == type_id)
+        )
+    ).scalar_one()
+    if recipes_count > 0:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Нельзя удалить: ингредиент используется в {recipes_count} рецепте(ах) — уберите его из позиций меню.",
+        )
+
+    name = product_type.name
+    await db.delete(product_type)
+    await log_activity(db, staff.id, staff.name, "product_type.delete", "product_type", None, {"name": name})
+    await db.commit()
 
 
 # ── Товары и партии ──────────────────────────────────────────────────────
