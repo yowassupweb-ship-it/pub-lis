@@ -7,7 +7,7 @@ export default function NotFound() {
         <p className="mt-2 text-sm tavern-soft">
           Карта ведёт в пустоту — 404. Возможно, ссылка устарела или игра удалена.
         </p>
-        <a href="/" className="btn-gold mt-5 w-full">К расписанию игр</a>
+        <a href="/games" className="btn-gold mt-5 w-full">К расписанию игр</a>
       </div>
     </main>
   );
