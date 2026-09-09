@@ -1556,6 +1556,47 @@ export default function StaffApp() {
       ([typeId, amount]) => getTypeAvailableAmount(typeId) + epsilon >= amount,
     );
 
+  // Себестоимость единицы ингредиента: средняя цена по партиям в остатке
+  // (взвешенная по остатку), а если остатка нет вообще — среднее по всем
+  // известным партиям, чтобы маржу можно было прикинуть даже при 0 на складе.
+  const getTypeUnitCost = (typeId: string): number | null => {
+    const prices: { price: number; weight: number }[] = [];
+    for (const product of products) {
+      if (product.typeId !== typeId) continue;
+      for (const batch of product.batches) {
+        const price = getBatchUnitPrice(product, batch);
+        if (price === null) continue;
+        prices.push({ price, weight: batch.remainingAmount > 0 ? batch.remainingAmount : 0 });
+      }
+    }
+    if (prices.length === 0) return null;
+    const totalWeight = prices.reduce((sum, p) => sum + p.weight, 0);
+    if (totalWeight > 0) return prices.reduce((sum, p) => sum + p.price * p.weight, 0) / totalWeight;
+    return prices.reduce((sum, p) => sum + p.price, 0) / prices.length;
+  };
+
+  // Себестоимость порции = сумма (себестоимость ед. ингредиента × расход).
+  // null, если хотя бы по одному ингредиенту нет ни одной известной цены.
+  const getPositionCost = (position: MenuPosition): number | null => {
+    let total = 0;
+    for (const ingredient of position.ingredients) {
+      const unitCost = getTypeUnitCost(resolveIngredientTypeId(ingredient));
+      if (unitCost === null) return null;
+      total += unitCost * parseNumber(ingredient.amount);
+    }
+    return total;
+  };
+
+  // Маржа порции: рубли и % от цены продажи (стандартное определение
+  // margin % = (цена - себестоимость) / цена × 100).
+  const getPositionMargin = (position: MenuPosition): { rub: number; percent: number } | null => {
+    const cost = getPositionCost(position);
+    const price = parseNumber(position.price);
+    if (cost === null || price <= 0) return null;
+    const rub = price - cost;
+    return { rub, percent: (rub / price) * 100 };
+  };
+
   const submitWriteOff = async () => {
     if (!writeOffTarget) return;
     const { product, batch } = writeOffTarget;
@@ -3182,6 +3223,7 @@ export default function StaffApp() {
                   ) : (
                     sortedListMenuPositions.map((position) => {
                       const available = canSellMenuPosition(position);
+                      const margin = getPositionMargin(position);
                       return (
                         <div
                           key={position.id}
@@ -3194,6 +3236,12 @@ export default function StaffApp() {
                               {formatOrderQuantity(position, 1)}
                               {available ? "" : " · не хватает остатка на складе"}
                             </p>
+                            {margin && (
+                              <p className="text-xs font-medium text-emerald-400">
+                                {margin.rub >= 0 ? "+" : "−"}
+                                {formatMoney(Math.abs(margin.rub))} · {Math.round(margin.percent)}%
+                              </p>
+                            )}
                           </div>
                           <span className="shrink-0 text-sm font-semibold">
                             {formatMoney(parseNumber(position.price))}
