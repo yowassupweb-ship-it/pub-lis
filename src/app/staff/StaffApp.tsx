@@ -1374,7 +1374,11 @@ export default function StaffApp() {
     () => writeOffs.filter((entry) => entry.createdAt.slice(0, 10) === todayKey),
     [writeOffs, todayKey],
   );
-  const todayRevenue = todayOrders.reduce((sum, order) => sum + order.total, 0);
+  // Отменённые заказы не считаем в выручку — иначе отмена не "возвращает деньги"
+  // в сводке дня (totalRevenue "за всё время" ниже уже фильтрует так же).
+  const todayRevenue = todayOrders
+    .filter((order) => order.status !== "cancelled")
+    .reduce((sum, order) => sum + order.total, 0);
 
   // Финансы: единое ядро маржинальности — сводит выручку заказов, расходы на
   // закупки и потери от списаний по всем сущностям склада/касс в одну картину.
