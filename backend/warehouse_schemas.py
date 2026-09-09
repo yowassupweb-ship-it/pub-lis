@@ -73,6 +73,7 @@ class ProductOut(BaseModel):
 
 
 class ProductUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=160)
     type_id: str | None = None
     stock_unit: str | None = Field(default=None, min_length=1, max_length=16)
     package_size: float | None = Field(default=None, gt=0)

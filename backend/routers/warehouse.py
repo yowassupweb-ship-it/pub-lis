@@ -201,6 +201,17 @@ async def update_product(
     if product is None:
         raise HTTPException(status_code=404, detail="Товар не найден")
     changes: dict[str, dict[str, object]] = {}
+    if body.name is not None and body.name != product.name:
+        normalized = normalize_name(body.name)
+        if normalized != product.normalized_name:
+            existing = (
+                await db.execute(select(Product).where(Product.normalized_name == normalized))
+            ).scalar_one_or_none()
+            if existing is not None:
+                raise HTTPException(status_code=409, detail=f"Товар «{body.name}» уже существует")
+            product.normalized_name = normalized
+        changes["name"] = {"before": product.name, "after": body.name}
+        product.name = body.name
     if body.type_id is not None and body.type_id != product.type_id:
         if await db.get(ProductType, body.type_id) is None:
             raise HTTPException(status_code=404, detail="Ингредиент не найден")

@@ -1165,11 +1165,11 @@ export default function StaffApp() {
         {expandedProductId === product.id && (
           <div className="space-y-3 border-t border-white/8 bg-[#17181b] p-4">
             <div className="grid gap-3 md:grid-cols-[minmax(220px,420px)_220px_130px_120px_160px]">
-              <Field label="Название товара" hint="Меняется только через новую закупку — бэкенд не поддерживает переименование товара">
+              <Field label="Название товара" hint="Как товар называется на складе">
                 <input
-                  className="h-10 w-full min-w-0 rounded-xl border border-white/8 bg-[#111214] px-3 text-sm text-zinc-400 outline-none"
-                  value={product.name}
-                  readOnly
+                  className="h-10 w-full min-w-0 rounded-xl border border-white/8 bg-[#111214] px-3 text-sm outline-none focus:border-zinc-400"
+                  defaultValue={product.name}
+                  onBlur={(event) => updateProductName(product.id, event.target.value)}
                 />
               </Field>
               <Field label="Ингредиент" hint="Категория расхода — от неё зависят рецепты, где используется товар">
@@ -1449,8 +1449,17 @@ export default function StaffApp() {
     setParsedItems((items) => items.map((item) => (item.id === id ? { ...item, ...patch } : item)));
   };
 
-  // Название товара по-прежнему не редактируется (задаётся при закупке), но
-  // ингредиент (type_id) и единицу расхода менять можно.
+  const updateProductName = async (id: string, name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const { data, error } = await apiUpdateProduct(id, { name: trimmed });
+    if (error) {
+      window.alert(error);
+      return;
+    }
+    if (data) setProducts((items) => items.map((item) => (item.id === id ? mapApiProduct(data) : item)));
+  };
+
   const updateProductPackageSize = async (id: string, packageSize: number) => {
     if (packageSize <= 0) return;
     const { data } = await apiUpdateProduct(id, { package_size: packageSize });
@@ -3406,9 +3415,11 @@ export default function StaffApp() {
                                   key={batch.id}
                                   className="grid items-center gap-2 rounded-xl border border-white/8 bg-[#111214] p-2 text-sm md:grid-cols-[minmax(0,1fr)_150px_90px_100px_100px_110px_90px]"
                                 >
-                                  <span className="min-w-0 truncate px-1 font-medium" title="Название меняется только через новую закупку">
-                                    {product.name}
-                                  </span>
+                                  <input
+                                    className="h-9 w-full min-w-0 rounded-lg border border-white/8 bg-[#17181b] px-2 text-sm font-medium outline-none focus:border-zinc-400"
+                                    defaultValue={product.name}
+                                    onBlur={(event) => updateProductName(product.id, event.target.value)}
+                                  />
                                   <DarkSelect
                                     value={product.typeId}
                                     options={productTypes.map((item) => ({ id: item.id, label: item.name }))}

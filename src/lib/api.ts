@@ -608,7 +608,7 @@ export const apiAddManualProduct = (payload: ManualProductPayload) =>
 
 export const apiUpdateProduct = (
   productId: string,
-  payload: { type_id?: string; stock_unit?: string; package_size?: number; shelf_life_days?: number },
+  payload: { name?: string; type_id?: string; stock_unit?: string; package_size?: number; shelf_life_days?: number },
 ) =>
   requestWithError<ApiProduct>(`/warehouse/products/${productId}`, {
     method: "PATCH",
