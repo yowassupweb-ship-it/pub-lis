@@ -3391,35 +3391,70 @@ export default function StaffApp() {
 
                         {expandedPurchaseId === purchase.id && (
                           <div className="border-t border-white/8 bg-[#17181b] p-4">
-                            <div className="mb-2 hidden grid-cols-[minmax(0,1fr)_130px_120px_130px_140px] gap-3 px-3 text-xs uppercase text-zinc-500 md:grid">
+                            <div className="mb-2 hidden grid-cols-[minmax(0,1fr)_150px_90px_100px_100px_110px_90px] gap-2 px-3 text-xs uppercase text-zinc-500 md:grid">
                               <span>Товар</span>
-                              <span>Тип</span>
-                              <span>Партия</span>
-                              <span>Цена</span>
-                              <span>Срок</span>
+                              <span>Ингредиент</span>
+                              <span>Упаковок</span>
+                              <span>Фасовка</span>
+                              <span>Ед.</span>
+                              <span>Цена партии</span>
+                              <span>Срок, дн.</span>
                             </div>
                             <div className="space-y-2">
-                              {purchaseBatches.map(({ product, batch }) => {
-                                const type = getProductType(product.typeId);
-                                const unitPrice = getBatchUnitPrice(product, batch);
-                                return (
-                                  <div
-                                    key={batch.id}
-                                    className="grid gap-2 rounded-xl border border-white/8 bg-[#111214] p-3 text-sm md:grid-cols-[minmax(0,1fr)_130px_120px_130px_140px]"
-                                  >
-                                    <span className="min-w-0 truncate font-medium">{product.name}</span>
-                                    <span className="text-zinc-400">{type?.name ?? "Тип"}</span>
-                                    <span className="text-zinc-400">
-                                      {formatAmount(batch.packs)} уп. / {formatAmount(getBatchAmount(product, batch))}{" "}
-                                      {product.stockUnit}
-                                    </span>
-                                    <span className="text-zinc-400">
-                                      {unitPrice === null ? "без цены" : `${formatMoney(unitPrice)} / ${product.stockUnit}`}
-                                    </span>
-                                    <span className="text-zinc-400">{batch.shelfLifeDays} дн. до {batch.expiresAt}</span>
-                                  </div>
-                                );
-                              })}
+                              {purchaseBatches.map(({ product, batch }) => (
+                                <div
+                                  key={batch.id}
+                                  className="grid items-center gap-2 rounded-xl border border-white/8 bg-[#111214] p-2 text-sm md:grid-cols-[minmax(0,1fr)_150px_90px_100px_100px_110px_90px]"
+                                >
+                                  <span className="min-w-0 truncate px-1 font-medium" title="Название меняется только через новую закупку">
+                                    {product.name}
+                                  </span>
+                                  <DarkSelect
+                                    value={product.typeId}
+                                    options={productTypes.map((item) => ({ id: item.id, label: item.name }))}
+                                    onChange={(value) => updateProductTypeId(product.id, value)}
+                                  />
+                                  <input
+                                    className="h-9 w-full min-w-0 rounded-lg border border-white/8 bg-[#17181b] px-2 text-sm outline-none focus:border-zinc-400"
+                                    inputMode="decimal"
+                                    value={batch.packs}
+                                    onChange={(event) =>
+                                      updateProductBatch(product.id, batch.id, { packs: parseNumber(event.target.value) })
+                                    }
+                                  />
+                                  <input
+                                    className="h-9 w-full min-w-0 rounded-lg border border-white/8 bg-[#17181b] px-2 text-sm outline-none focus:border-zinc-400"
+                                    inputMode="decimal"
+                                    value={product.packageSize}
+                                    onChange={(event) =>
+                                      updateProductPackageSize(product.id, Math.max(0, parseNumber(event.target.value)))
+                                    }
+                                  />
+                                  <input
+                                    className="h-9 w-full min-w-0 rounded-lg border border-white/8 bg-[#17181b] px-2 text-sm outline-none focus:border-zinc-400"
+                                    value={product.stockUnit}
+                                    onChange={(event) => updateProductStockUnit(product.id, event.target.value)}
+                                  />
+                                  <input
+                                    className="h-9 w-full min-w-0 rounded-lg border border-white/8 bg-[#17181b] px-2 text-sm outline-none focus:border-zinc-400"
+                                    inputMode="decimal"
+                                    value={batch.totalPrice ?? ""}
+                                    onChange={(event) =>
+                                      updateProductBatch(product.id, batch.id, {
+                                        totalPrice: Math.max(0, parseNumber(event.target.value)),
+                                      })
+                                    }
+                                  />
+                                  <input
+                                    className="h-9 w-full min-w-0 rounded-lg border border-white/8 bg-[#17181b] px-2 text-sm outline-none focus:border-zinc-400"
+                                    inputMode="numeric"
+                                    value={batch.shelfLifeDays}
+                                    onChange={(event) =>
+                                      updateProductBatch(product.id, batch.id, { shelfLifeDays: event.target.value })
+                                    }
+                                  />
+                                </div>
+                              ))}
                             </div>
                           </div>
                         )}
